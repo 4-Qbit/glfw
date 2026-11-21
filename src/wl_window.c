@@ -1211,7 +1211,14 @@ static GLFWbool createNativeSurface(_GLFWwindow* window,
     window->wl.height = wndconfig->height;
     window->wl.fbWidth = wndconfig->width;
     window->wl.fbHeight = wndconfig->height;
-    window->wl.appId = _glfw_strdup(wndconfig->wl.appId);
+    //If application not set it manually,try to overwrite it with env var "GLFW_DEFAULT_APP_ID".
+    if (wndconfig->wl.appIdSet)
+        window->wl.appId = _glfw_strdup(wndconfig->wl.appId);
+    else
+    {
+        const char* appId = getenv("GLFW_DEFAULT_APP_ID");
+        window->wl.appId = _glfw_strdup(appId ? appId : "");
+    }
 
     window->wl.bufferScale = 1;
     window->wl.scalingNumerator = 120;

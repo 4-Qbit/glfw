@@ -458,6 +458,12 @@ GLFWAPI void glfwWindowHintString(int hint, const char* value)
         case GLFW_WAYLAND_APP_ID:
             strncpy(_glfw.hints.window.wl.appId, value,
                     sizeof(_glfw.hints.window.wl.appId) - 1);
+                /*
+                 If application set it manual,set it to true,
+                 if not, when application trying to set it as NULL,
+                 it would be rewrite by environment variable "GLFW_DEFAULT_APP_ID".
+                */
+                _glfw.hints.window.wl.appIdSet = true;
             return;
     }
 

@@ -416,19 +416,20 @@ struct _GLFWwndconfig
     bool          scaleToMonitor;
     bool          scaleFramebuffer;
     struct {
+        bool      keymenu;
+        bool      showDefault;
+    } win32;
+    struct {
+        bool      appIdSet;
+        char      appId[256];
+    } wl;
+    struct {
         char      frameName[256];
     } ns;
     struct {
         char      className[256];
         char      instanceName[256];
     } x11;
-    struct {
-        bool      keymenu;
-        bool      showDefault;
-    } win32;
-    struct {
-        char      appId[256];
-    } wl;
 };
 
 // Context configuration

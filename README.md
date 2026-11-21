@@ -1,5 +1,10 @@
 # GLFW
 
+Branch changes:
+Please see CMakeLists.txt
+Add a new environment variable "GLFW_DEFAULT_APP_ID"
+	if application not set appid manually,it will be set to it.
+
 [![Build status](https://github.com/glfw/glfw/actions/workflows/build.yml/badge.svg)](https://github.com/glfw/glfw/actions)
 [![Build status](https://ci.appveyor.com/api/projects/status/0kf0ct9831i5l6sp/branch/master?svg=true)](https://ci.appveyor.com/project/elmindreda/glfw)
 
