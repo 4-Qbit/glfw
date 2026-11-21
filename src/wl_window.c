@@ -50,6 +50,9 @@
 #include "viewporter-client-protocol.h"
 #include "relative-pointer-unstable-v1-client-protocol.h"
 #include "pointer-constraints-unstable-v1-client-protocol.h"
+#if defined(GLFW_ENABLE_POINTER_WARP)
+#include "pointer-warp-v1-client-protocol.h"
+#endif
 #include "xdg-activation-v1-client-protocol.h"
 #include "idle-inhibit-unstable-v1-client-protocol.h"
 #include "fractional-scale-v1-client-protocol.h"
@@ -2967,27 +2970,36 @@ void _glfwGetCursorPosWayland(_GLFWwindow* window, double* xpos, double* ypos)
         *ypos = window->wl.cursorPosY;
 }
 
+#if GLFW_UNLOCK_CUR_METHOD == 1 && defined(GLFW_ENABLE_POINTER_WARP)
+static void warpPointer(_GLFWwindow* window, double xpos, double ypos)
+{
+    if(!_glfw.wl.pointerWarp||!_glfw.wl.pointer||_glfw.wl.pointerSurface!=window->wl.surface)
+        return;
+
+    //compositor may ignore it,it's still a hint not a hard guarantee.
+    wp_pointer_warp_v1_warp_pointer(_glfw.wl.pointerWarp,
+                                    window->wl.surface,
+                                    _glfw.wl.pointer,
+                                    wl_fixed_from_double(xpos),
+                                    wl_fixed_from_double(ypos),
+                                    _glfw.wl.pointerEnterSerial);
+}
+#endif
+
 void _glfwSetCursorPosWayland(_GLFWwindow* window, double x, double y)
 {
 #if GLFW_UNLOCK_CUR_METHOD == 1
-    if (window->wl.lockedPointer)
-    {
-        //pointer is locked,set position hint,it takes effect when unlocking
-        zwp_locked_pointer_v1_set_cursor_position_hint(window->wl.lockedPointer,
-                                                       wl_fixed_from_double(x),
-                                                       wl_fixed_from_double(y));
-        window->wl.cursorPosX = x;
-        window->wl.cursorPosY = y;
-    }
-    else
-    {
-        //pointer is not locked yet,remember the request,apply it when locking next time
-        window->wl.didAskForSetCursorPos = GLFW_TRUE;
-        window->wl.askedCursorPosX = x;
-        window->wl.askedCursorPosY = y;
-    }
+    //remember the request,it's used as the unlock pos once
+    window->wl.didAskForSetCursorPos = GLFW_TRUE;
+    window->wl.askedCursorPosX = x;
+    window->wl.askedCursorPosY = y;
+
+#if defined(GLFW_ENABLE_POINTER_WARP)
+    //warp now as a shortcut,the same request is applied again on unlock
+    warpPointer(window, x, y);
+#endif
 #else
-    //keep previous pos mode:wayland can't move the pointer,ignore the request
+    //mode 2:keep the pos before locking,ignore the request
     (void) window;
     (void) x;
     (void) y;
@@ -3222,34 +3234,52 @@ static const struct zwp_relative_pointer_v1_listener relativePointerListener =
     relativePointerHandleRelativeMotion
 };
 
+static void getUnlockCursorPos(_GLFWwindow* window, double* xpos, double* ypos, GLFWbool consume)
+{
+#if GLFW_UNLOCK_CUR_METHOD == 1
+    if (window->wl.didAskForSetCursorPos)
+    {
+        //use the app-requested pos if any
+        if (consume)
+            window->wl.didAskForSetCursorPos = GLFW_FALSE;
+
+        *xpos = window->wl.askedCursorPosX;
+        *ypos = window->wl.askedCursorPosY;
+        return;
+    }
+
+    //otherwise fallback to the window center
+    *xpos = window->wl.width / 2.0;
+    *ypos = window->wl.height / 2.0;
+#else
+    (void) consume;
+
+    //mode 2:keep the pos before locking
+    *xpos = window->wl.cursorPosX;
+    *ypos = window->wl.cursorPosY;
+#endif
+}
+
 static void lockedPointerHandleLocked(void* userData,
                                       struct zwp_locked_pointer_v1* lockedPointer)
 {
-    _GLFWwindow* window = userData;
-
 #if GLFW_UNLOCK_CUR_METHOD == 1
-    double x,y;
-    //default to window center,use asked pos if the app requested one.
-    if (window->wl.didAskForSetCursorPos)
-    {
-        window->wl.didAskForSetCursorPos = GLFW_FALSE;
-        x = window->wl.askedCursorPosX;
-        y = window->wl.askedCursorPosY;
-    }else{
-        x = window->wl.width / 2.0;
-        y = window->wl.height / 2.0;
-    }
+    _GLFWwindow* window = userData;
+    double xpos, ypos;
 
+#if defined(GLFW_ENABLE_POINTER_WARP)
+    if (_glfw.wl.pointerWarp)
+        return;
+#endif
+
+    //no warp support,ask the compositor to place the pointer on unlock
+    getUnlockCursorPos(window, &xpos, &ypos, GLFW_FALSE);
     zwp_locked_pointer_v1_set_cursor_position_hint(lockedPointer,
-                                                   wl_fixed_from_double(x),
-                                                   wl_fixed_from_double(y));
-    window->wl.cursorPosX = x;
-    window->wl.cursorPosY = y;
+                                                   wl_fixed_from_double(xpos),
+                                                   wl_fixed_from_double(ypos));
 #else
-    //keep previous pos mode:use pos before locking as hint,pointer stays there on unlock
-    zwp_locked_pointer_v1_set_cursor_position_hint(window->wl.lockedPointer,
-                                                   wl_fixed_from_double(window->wl.cursorPosX),
-                                                   wl_fixed_from_double(window->wl.cursorPosY));
+    (void) userData;
+    (void) lockedPointer;
 #endif
 }
 
@@ -3257,9 +3287,12 @@ static void lockedPointerHandleUnlocked(void* userData,
                                         struct zwp_locked_pointer_v1* lockedPointer)
 {
     _GLFWwindow* window = userData;
+    double xpos, ypos;
+
+    getUnlockCursorPos(window, &xpos, &ypos, GLFW_FALSE);
 
      //If we don't set pos again,compositor will use previous focus,call it manually to avoid it.
-    _glfwInputCursorPos(window, window->wl.cursorPosX, window->wl.cursorPosY);
+    _glfwInputCursorPos(window, xpos, ypos);
 }
 
 static const struct zwp_locked_pointer_v1_listener lockedPointerListener =
@@ -3305,11 +3338,23 @@ static void lockPointer(_GLFWwindow* window)
 
 static void unlockPointer(_GLFWwindow* window)
 {
+    double xpos, ypos;
+
     zwp_relative_pointer_v1_destroy(window->wl.relativePointer);
     window->wl.relativePointer = NULL;
 
     zwp_locked_pointer_v1_destroy(window->wl.lockedPointer);
     window->wl.lockedPointer = NULL;
+
+    getUnlockCursorPos(window, &xpos, &ypos, GLFW_TRUE);
+
+#if GLFW_UNLOCK_CUR_METHOD == 1 && defined(GLFW_ENABLE_POINTER_WARP)
+    //move the visible pointer to the same pos reported below
+    warpPointer(window, xpos, ypos);
+#endif
+
+    //destroy by client doesn't trigger unlocked,sync focus here manually
+    _glfwInputCursorPos(window, xpos, ypos);
 }
 
 static void confinedPointerHandleConfined(void* userData,

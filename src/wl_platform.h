@@ -407,13 +407,11 @@ typedef struct _GLFWwindowWayland
 
     double                      cursorPosX, cursorPosY;
 #if GLFW_UNLOCK_CUR_METHOD == 1
-    /*
-    We should know what's status when user call some function
-	Did user ask new cursor position?
-    */
+	//Did user ask new cursor position,What asked value is:
     double                      askedCursorPosX, askedCursorPosY;
     GLFWbool                    didAskForSetCursorPos;
 #endif
+
     char*                       appId;
 
     // We need to track the monitors the window spans on to calculate the
@@ -463,6 +461,9 @@ typedef struct _GLFWlibraryWayland
     struct wp_viewporter*       viewporter;
     struct zwp_relative_pointer_manager_v1* relativePointerManager;
     struct zwp_pointer_constraints_v1*      pointerConstraints;
+#if defined(GLFW_ENABLE_POINTER_WARP)
+    struct wp_pointer_warp_v1*              pointerWarp;
+#endif
     struct zwp_idle_inhibit_manager_v1*     idleInhibitManager;
     struct xdg_activation_v1*               activationManager;
     struct wp_fractional_scale_manager_v1*  fractionalScaleManager;

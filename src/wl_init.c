@@ -46,6 +46,9 @@
 #include "viewporter-client-protocol.h"
 #include "relative-pointer-unstable-v1-client-protocol.h"
 #include "pointer-constraints-unstable-v1-client-protocol.h"
+#if defined(GLFW_ENABLE_POINTER_WARP)
+#include "pointer-warp-v1-client-protocol.h"
+#endif
 #include "fractional-scale-v1-client-protocol.h"
 #include "xdg-activation-v1-client-protocol.h"
 #include "idle-inhibit-unstable-v1-client-protocol.h"
@@ -78,6 +81,12 @@
 #define types _glfw_pointer_constraints_types
 #include "pointer-constraints-unstable-v1-client-protocol-code.h"
 #undef types
+
+#if defined(GLFW_ENABLE_POINTER_WARP)
+#define types _glfw_pointer_warp_types
+#include "pointer-warp-v1-client-protocol-code.h"
+#undef types
+#endif
 
 #define types _glfw_fractional_scale_types
 #include "fractional-scale-v1-client-protocol-code.h"
@@ -180,6 +189,19 @@ static void registryHandleGlobal(void* userData,
                              &zwp_pointer_constraints_v1_interface,
                              1);
     }
+//Add support for pointer warp.
+#if defined(GLFW_ENABLE_POINTER_WARP)
+    else if (strcmp(interface, "wp_pointer_warp_v1") == 0)
+    {
+        if (!_glfw.wl.pointerWarp)
+        {
+            _glfw.wl.pointerWarp =
+                wl_registry_bind(registry, name,
+                                 &wp_pointer_warp_v1_interface,
+                                 1);
+        }
+    }
+#endif
     else if (strcmp(interface, "zwp_idle_inhibit_manager_v1") == 0)
     {
         _glfw.wl.idleInhibitManager =
@@ -982,6 +1004,10 @@ void _glfwTerminateWayland(void)
         zwp_relative_pointer_manager_v1_destroy(_glfw.wl.relativePointerManager);
     if (_glfw.wl.pointerConstraints)
         zwp_pointer_constraints_v1_destroy(_glfw.wl.pointerConstraints);
+#if defined(GLFW_ENABLE_POINTER_WARP)
+    if (_glfw.wl.pointerWarp)
+        wp_pointer_warp_v1_destroy(_glfw.wl.pointerWarp);
+#endif
     if (_glfw.wl.idleInhibitManager)
         zwp_idle_inhibit_manager_v1_destroy(_glfw.wl.idleInhibitManager);
     if (_glfw.wl.activationManager)

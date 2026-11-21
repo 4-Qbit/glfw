@@ -15,10 +15,6 @@ option(GLFW_INSTALL "Generate installation target" ON)
 include(GNUInstallDirs)
 include(CMakeDependentOption)
 
-if (GLFW_USE_OSMESA)
-    message(FATAL_ERROR "GLFW_USE_OSMESA has been removed; set the GLFW_PLATFORM init hint")
-endif()
-
 if (DEFINED GLFW_USE_WAYLAND AND UNIX AND NOT APPLE)
     message(FATAL_ERROR
         "GLFW_USE_WAYLAND has been removed; delete the CMake cache and set GLFW_BUILD_WAYLAND and GLFW_BUILD_X11 instead")
@@ -34,9 +30,9 @@ cmake_dependent_option(GLFW_USE_HYBRID_HPG "Force use of high-performance GPU on
 cmake_dependent_option(USE_MSVC_RUNTIME_LIBRARY_DLL "Use MSVC runtime library DLL" ON
                        "MSVC" OFF)
 
-#What should cursors do,when user call _glfwSetCursorPosWayland(When lockedPointer is true).
-#1:If cur's pos is asked,set it to new pos, if not wrap it to the center of it's window, and then update window focus.
-#2:Ignore asked cur pos,use previous position,when cur locked, and then update focus.
+#What should cursors do,when the pointer is unlocked.
+#1:if app not provide new position,put the cursors to the center of its window, and then update focus.
+#2:Restore cursors's position to the value(before it locking), and then update focus.
 set(GLFW_UNLOCK_CUR_METHOD "1" CACHE STRING
     "Wayland cursor unlock method: 1 = center, 2 = keep previous position")
 set_property(CACHE GLFW_UNLOCK_CUR_METHOD PROPERTY STRINGS 1 2)
@@ -45,6 +41,9 @@ if (NOT GLFW_UNLOCK_CUR_METHOD STREQUAL "1" AND
     NOT GLFW_UNLOCK_CUR_METHOD STREQUAL "2")
     message(FATAL_ERROR "GLFW_UNLOCK_CUR_METHOD must be 1 or 2")
 endif()
+
+#enable wp_pointer_warp_v1 support,defined as an empty macro when ON
+option(GLFW_ENABLE_POINTER_WARP "Enable wp_pointer_warp_v1 pointer warping" OFF)
 
 set(GLFW_LIBRARY_TYPE "${GLFW_LIBRARY_TYPE}" CACHE STRING
     "Library type override for GLFW (SHARED, STATIC, OBJECT, or empty to follow BUILD_SHARED_LIBS)")
