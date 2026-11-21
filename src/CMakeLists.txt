@@ -53,6 +53,7 @@ endif()
 
 if (GLFW_BUILD_WAYLAND)
     target_compile_definitions(glfw PRIVATE _GLFW_WAYLAND)
+    target_compile_definitions(glfw PRIVATE GLFW_UNLOCK_CUR_METHOD=${GLFW_UNLOCK_CUR_METHOD})
     target_sources(glfw PRIVATE wl_platform.h wl_init.c
                                 wl_monitor.c wl_window.c)
 endif()

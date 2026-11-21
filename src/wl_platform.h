@@ -406,7 +406,14 @@ typedef struct _GLFWwindowWayland
     } libdecor;
 
     double                      cursorPosX, cursorPosY;
-
+#if GLFW_UNLOCK_CUR_METHOD == 1
+    /*
+    We should know what's status when user call some function
+	Did user ask new cursor position?
+    */
+    double                      askedCursorPosX, askedCursorPosY;
+    GLFWbool                    didAskForSetCursorPos;
+#endif
     char*                       appId;
 
     // We need to track the monitors the window spans on to calculate the
