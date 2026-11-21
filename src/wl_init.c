@@ -47,7 +47,10 @@
 #include "relative-pointer-unstable-v1-client-protocol.h"
 #include "pointer-constraints-unstable-v1-client-protocol.h"
 #if defined(GLFW_ENABLE_POINTER_WARP)
-#include "pointer-warp-v1-client-protocol.h"
+	#include "pointer-warp-v1-client-protocol.h"
+#endif
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+	#include "xdg-toplevel-icon-v1-client-protocol.h"
 #endif
 #include "fractional-scale-v1-client-protocol.h"
 #include "xdg-activation-v1-client-protocol.h"
@@ -83,9 +86,15 @@
 #undef types
 
 #if defined(GLFW_ENABLE_POINTER_WARP)
-#define types _glfw_pointer_warp_types
-#include "pointer-warp-v1-client-protocol-code.h"
-#undef types
+	#define types _glfw_pointer_warp_types
+	#include "pointer-warp-v1-client-protocol-code.h"
+	#undef types
+#endif
+
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+	#define types _glfw_toplevel_icon_types
+	#include "xdg-toplevel-icon-v1-client-protocol-code.h"
+	#undef types
 #endif
 
 #define types _glfw_fractional_scale_types
@@ -111,6 +120,27 @@ static const struct xdg_wm_base_listener wmBaseListener =
 {
     wmBaseHandlePing
 };
+
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+//icon_size only describes the sizes the compositor prefers,scaling handles the rest
+//We don't care what's compositor will do, so, just create tow blank handle to do that.
+static void toplevelIconManagerHandleIconSize(void* userData,
+                                              struct xdg_toplevel_icon_manager_v1* manager,
+                                              int32_t size)
+{
+}
+
+static void toplevelIconManagerHandleDone(void* userData,
+                                          struct xdg_toplevel_icon_manager_v1* manager)
+{
+}
+
+static const struct xdg_toplevel_icon_manager_v1_listener toplevelIconManagerListener =
+{
+    toplevelIconManagerHandleIconSize,
+    toplevelIconManagerHandleDone
+};
+#endif
 
 static void registryHandleGlobal(void* userData,
                                  struct wl_registry* registry,
@@ -223,6 +253,19 @@ static void registryHandleGlobal(void* userData,
                              &wp_fractional_scale_manager_v1_interface,
                              1);
     }
+//Add support for toplevle icon.
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+    else if (strcmp(interface, "xdg_toplevel_icon_manager_v1") == 0)
+    {
+        _glfw.wl.toplevelIconManager =
+            wl_registry_bind(registry, name,
+                             &xdg_toplevel_icon_manager_v1_interface,
+                             1);
+        xdg_toplevel_icon_manager_v1_add_listener(_glfw.wl.toplevelIconManager,
+                                                  &toplevelIconManagerListener,
+                                                  NULL);
+    }
+#endif
 }
 
 static void registryHandleGlobalRemove(void* userData,
@@ -1014,6 +1057,10 @@ void _glfwTerminateWayland(void)
         xdg_activation_v1_destroy(_glfw.wl.activationManager);
     if (_glfw.wl.fractionalScaleManager)
         wp_fractional_scale_manager_v1_destroy(_glfw.wl.fractionalScaleManager);
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+    if (_glfw.wl.toplevelIconManager)
+        xdg_toplevel_icon_manager_v1_destroy(_glfw.wl.toplevelIconManager);
+#endif
     if (_glfw.wl.registry)
         wl_registry_destroy(_glfw.wl.registry);
     if (_glfw.wl.display)

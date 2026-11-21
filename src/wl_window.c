@@ -53,6 +53,9 @@
 #if defined(GLFW_ENABLE_POINTER_WARP)
 #include "pointer-warp-v1-client-protocol.h"
 #endif
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+#include "xdg-toplevel-icon-v1-client-protocol.h"
+#endif
 #include "xdg-activation-v1-client-protocol.h"
 #include "idle-inhibit-unstable-v1-client-protocol.h"
 #include "fractional-scale-v1-client-protocol.h"
@@ -154,25 +157,28 @@ static int createAnonymousFile(off_t size)
     return fd;
 }
 
-static struct wl_buffer* createShmBuffer(const GLFWimage* image)
-{
+//always_inline lets the compiler fold the error paths away for constant callers.
+__attribute__((always_inline)) static inline struct wl_buffer* createShmBufferInternal(const GLFWimage* image,GLFWbool raiseErrors){
     const int stride = image->width * 4;
     const int length = image->width * image->height * 4;
 
     const int fd = createAnonymousFile(length);
     if (fd < 0)
     {
-        _glfwInputError(GLFW_PLATFORM_ERROR,
-                        "Wayland: Failed to create buffer file of size %d: %s",
-                        length, strerror(errno));
+        if (raiseErrors)
+            _glfwInputError(GLFW_PLATFORM_ERROR,"Wayland: Failed to create buffer file of size %d: %s",length, strerror(errno));
+        else
+            _glfwInputWarning(GLFW_PLATFORM_ERROR,"Wayland: Failed to create buffer file of size %d: %s",length, strerror(errno));
         return NULL;
     }
 
     void* data = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (data == MAP_FAILED)
     {
-        _glfwInputError(GLFW_PLATFORM_ERROR,
-                        "Wayland: Failed to map file: %s", strerror(errno));
+        if (raiseErrors)
+            _glfwInputError(GLFW_PLATFORM_ERROR,"Wayland: Failed to map file: %s", strerror(errno));
+        else
+            _glfwInputWarning(GLFW_PLATFORM_ERROR,"Wayland: Failed to map file: %s", strerror(errno));
         close(fd);
         return NULL;
     }
@@ -203,6 +209,84 @@ static struct wl_buffer* createShmBuffer(const GLFWimage* image)
 
     return buffer;
 }
+
+static inline __attribute__((always_inline)) struct wl_buffer* createShmBuffer(const GLFWimage* image)
+{
+    return createShmBufferInternal(image, GLFW_TRUE);
+}
+
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+//the compositor only accepts square icon buffers,crop the center of non-square images
+static struct wl_buffer* createIconShmBuffer(const GLFWimage* image)
+{
+    if (image->width == image->height)
+        return createShmBufferInternal(image, GLFW_FALSE);
+
+    const int side = _glfw_min(image->width, image->height);
+    const int xoffset = (image->width - side) / 2;
+    const int yoffset = (image->height - side) / 2;
+
+    unsigned char* pixels = _glfw_calloc((size_t) side * side, 4);
+    if (!pixels)
+        return NULL;
+
+    for (int y = 0;  y < side;  y++)
+    {
+        memcpy(pixels + (size_t) y * side * 4,
+               image->pixels + ((size_t) (y + yoffset) * image->width + xoffset) * 4,
+               (size_t) side * 4);
+    }
+
+    const GLFWimage square = { side, side, pixels };
+    //an optional icon must never raise a GLFW error,the caller would kill the app
+    struct wl_buffer* buffer = createShmBufferInternal(&square, GLFW_FALSE);
+    _glfw_free(pixels);
+    return buffer;
+}
+
+static void destroyToplevelIconWayland(_GLFWwindow* window)
+{
+    _GLFWtoplevelIconWayland* icon = window->wl.icon;
+    if (!icon)
+        return;
+
+    window->wl.icon = NULL;
+
+    //destroy the icon object first,the buffers only have to outlive it
+    if (icon->icon)
+        xdg_toplevel_icon_v1_destroy(icon->icon);
+
+    for (size_t i = 0;  i < icon->bufferCount;  i++)
+        wl_buffer_destroy(icon->buffers[i]);
+
+    _glfw_free(icon->buffers);
+    _glfw_free(icon);
+}
+
+static struct xdg_toplevel* getToplevelWayland(_GLFWwindow* window)
+{
+    if (window->wl.libdecor.frame)
+        return libdecor_frame_get_xdg_toplevel(window->wl.libdecor.frame);
+
+    return window->wl.xdg.toplevel;
+}
+
+//the icon may be set before the toplevel exists or after it was recreated
+static void applyToplevelIconWayland(_GLFWwindow* window)
+{
+    struct xdg_toplevel* toplevel;
+
+    if (!window->wl.icon)
+        return;
+
+    toplevel = getToplevelWayland(window);
+    if (!toplevel)
+        return;
+
+    xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.toplevelIconManager,
+                                          toplevel, window->wl.icon->icon);
+}
+#endif
 
 static void callbackHandleDone(void* userData, struct wl_callback* callback, uint32_t data)
 {
@@ -1162,10 +1246,21 @@ static GLFWbool createShellObjects(_GLFWwindow* window)
     if (_glfw.wl.libdecor.context)
     {
         if (createLibdecorFrame(window))
+        {
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+            applyToplevelIconWayland(window);
+#endif
             return GLFW_TRUE;
+        }
     }
 
-    return createXdgShellObjects(window);
+    if (!createXdgShellObjects(window))
+        return GLFW_FALSE;
+
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+    applyToplevelIconWayland(window);
+#endif
+    return GLFW_TRUE;
 }
 
 static void destroyShellObjects(_GLFWwindow* window)
@@ -2479,6 +2574,10 @@ void _glfwDestroyWindowWayland(_GLFWwindow* window)
     if (window->wl.fractionalScale)
         wp_fractional_scale_v1_destroy(window->wl.fractionalScale);
 
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+    destroyToplevelIconWayland(window);
+#endif
+
     if (window->wl.scalingViewport)
         wp_viewport_destroy(window->wl.scalingViewport);
 
@@ -2535,8 +2634,79 @@ void _glfwSetWindowTitleWayland(_GLFWwindow* window, const char* title)
 void _glfwSetWindowIconWayland(_GLFWwindow* window,
                                int count, const GLFWimage* images)
 {
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+    struct xdg_toplevel* toplevel;
+
+    if (!_glfw.wl.toplevelIconManager)
+    {
+        fprintf(stderr,
+                "[GLFW] Wayland: The platform does not support setting the window icon\n");
+        return;
+    }
+
+    toplevel = getToplevelWayland(window);
+
+    //an empty icon resets the toplevel to its default icon
+    if (!count)
+    {
+        if (toplevel)
+            xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.toplevelIconManager,toplevel, NULL);
+
+        destroyToplevelIconWayland(window);
+        return;
+    }
+
+    _GLFWtoplevelIconWayland* icon =
+        _glfw_calloc(1, sizeof(_GLFWtoplevelIconWayland));
+    if (!icon)
+        return;
+
+    icon->icon = xdg_toplevel_icon_manager_v1_create_icon(_glfw.wl.toplevelIconManager);
+    icon->buffers = _glfw_calloc((size_t) count, sizeof(struct wl_buffer*));
+    if (!icon->icon || !icon->buffers)
+    {
+        if (icon->icon)
+            xdg_toplevel_icon_v1_destroy(icon->icon);
+
+        _glfw_free(icon->buffers);
+        _glfw_free(icon);
+        return;
+    }
+
+    for (int i = 0;  i < count;  i++)
+    {
+        struct wl_buffer* buffer = createIconShmBuffer(&images[i]);
+        if (!buffer)
+            continue;
+
+        //the image is in device pixels,convert it to surface-local pixels
+        xdg_toplevel_icon_v1_add_buffer(icon->icon, buffer, window->wl.bufferScale);
+        icon->buffers[icon->bufferCount++] = buffer;
+    }
+
+    if (!icon->bufferCount)
+    {
+        xdg_toplevel_icon_v1_destroy(icon->icon);
+        _glfw_free(icon->buffers);
+        _glfw_free(icon);
+        return;
+    }
+
+    //the state is double buffered and applied on the next surface commit
+    //without a toplevel yet,the icon is applied once the shell objects exist
+    if (toplevel)
+    {
+        xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.toplevelIconManager,
+                                              toplevel, icon->icon);
+    }
+
+    //the toplevel keeps the old icon until the new one is applied
+    destroyToplevelIconWayland(window);
+    window->wl.icon = icon;
+#else
     fprintf(stderr,
             "[GLFW] Wayland: The platform does not support setting the window icon\n");
+#endif
 }
 
 void _glfwGetWindowPosWayland(_GLFWwindow* window, int* xpos, int* ypos)

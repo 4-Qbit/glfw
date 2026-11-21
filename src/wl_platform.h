@@ -142,6 +142,8 @@ struct wl_output;
 #define xdg_activation_token_v1_interface _glfw_xdg_activation_token_v1_interface
 #define wl_surface_interface _glfw_wl_surface_interface
 #define wp_fractional_scale_v1_interface _glfw_wp_fractional_scale_v1_interface
+#define xdg_toplevel_icon_manager_v1_interface _glfw_xdg_toplevel_icon_manager_v1_interface
+#define xdg_toplevel_icon_v1_interface _glfw_xdg_toplevel_icon_v1_interface
 
 #define GLFW_WAYLAND_WINDOW_STATE         _GLFWwindowWayland  wl;
 #define GLFW_WAYLAND_LIBRARY_WINDOW_STATE _GLFWlibraryWayland wl;
@@ -364,6 +366,15 @@ typedef struct _GLFWscaleWayland
     int32_t                     factor;
 } _GLFWscaleWayland;
 
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+typedef struct _GLFWtoplevelIconWayland
+{
+    struct xdg_toplevel_icon_v1*    icon;
+    struct wl_buffer**              buffers;
+    size_t                          bufferCount;
+} _GLFWtoplevelIconWayland;
+#endif
+
 // Wayland-specific per-window data
 //
 typedef struct _GLFWwindowWayland
@@ -431,6 +442,10 @@ typedef struct _GLFWwindowWayland
 
     struct zwp_idle_inhibitor_v1*   idleInhibitor;
     struct xdg_activation_token_v1* activationToken;
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+    //kept alive as long as the icon is set on the toplevel
+    _GLFWtoplevelIconWayland*   icon;
+#endif
 
     struct {
         GLFWbool                    decorations;
@@ -467,6 +482,9 @@ typedef struct _GLFWlibraryWayland
     struct zwp_idle_inhibit_manager_v1*     idleInhibitManager;
     struct xdg_activation_v1*               activationManager;
     struct wp_fractional_scale_manager_v1*  fractionalScaleManager;
+#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
+    struct xdg_toplevel_icon_manager_v1*    toplevelIconManager;
+#endif
 
     _GLFWofferWayland*          offers;
     unsigned int                offerCount;

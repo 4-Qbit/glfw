@@ -304,80 +304,103 @@ void _glfw_free(void* block)
 //////                         GLFW event API                       //////
 //////////////////////////////////////////////////////////////////////////
 
-// Notifies shared code of an error
-//
-void _glfwInputError(int code, const char* format, ...)
-{
-    _GLFWerror* error;
-    char description[_GLFW_MESSAGE_SIZE];
+//Internal error handle:
+void __internal_glfwInputError(int code,GLFWbool raise_error,char* description){
+	_GLFWerror* error;
+	char fallback[_GLFW_MESSAGE_SIZE];
+	if(!description){
+		description=fallback;
+		switch(code){
+		case GLFW_NOT_INITIALIZED:
+			strcpy(description,"The GLFW library is not initialized");
+		break;
+		case GLFW_NO_CURRENT_CONTEXT:
+			strcpy(description,"There is no current context");
+		break;
+		case GLFW_INVALID_ENUM:
+			strcpy(description,"Invalid argument for enum parameter");
+		break;
+		case GLFW_INVALID_VALUE:
+			strcpy(description,"Invalid value for parameter");
+		break;
+		case GLFW_OUT_OF_MEMORY:
+			strcpy(description,"Out of memory");
+		break;
+		case GLFW_API_UNAVAILABLE:
+			strcpy(description,"The requested API is unavailable");
+		break;
+		case GLFW_VERSION_UNAVAILABLE:
+			strcpy(description,"The requested API version is unavailable");
+		break;
+		case GLFW_PLATFORM_ERROR:
+			strcpy(description,"A platform-specific error occurred");
+		break;
+		case GLFW_FORMAT_UNAVAILABLE:
+			strcpy(description,"The requested format is unavailable");
+		break;
+		case GLFW_NO_WINDOW_CONTEXT:
+			strcpy(description,"The specified window has no context");
+		break;
+		case GLFW_FEATURE_UNAVAILABLE:
+			strcpy(description,"The requested feature cannot be implemented for this platform");
+		break;
+		case GLFW_FEATURE_UNIMPLEMENTED:
+			strcpy(description,"The requested feature has not yet been implemented for this platform");
+		break;
+		case GLFW_PLATFORM_UNAVAILABLE:
+			strcpy(description,"The requested platform is unavailable");
+		break;
+		default:
+			strcpy(description,"ERROR: UNKNOWN GLFW ERROR");
+		}
+	}
+if(raise_error){
+	if(_glfw.initialized){
+		error=_glfwPlatformGetTls(&_glfw.errorSlot);
+		if(!error){
+			error=_glfw_calloc(1,sizeof(_GLFWerror));
+			_glfwPlatformSetTls(&_glfw.errorSlot,error);
+			_glfwPlatformLockMutex(&_glfw.errorLock);
+			error->next=_glfw.errorListHead;
+			_glfw.errorListHead=error;
+			_glfwPlatformUnlockMutex(&_glfw.errorLock);
+		}
+	}else
+		error=&_glfwMainThreadError;
 
-    if (format)
-    {
-        va_list vl;
+	error->code=code;
+	strcpy(error->description,description);
 
-        va_start(vl, format);
-        vsnprintf(description, sizeof(description), format, vl);
-        va_end(vl);
-
-        description[sizeof(description) - 1] = '\0';
-    }
-    else
-    {
-        if (code == GLFW_NOT_INITIALIZED)
-            strcpy(description, "The GLFW library is not initialized");
-        else if (code == GLFW_NO_CURRENT_CONTEXT)
-            strcpy(description, "There is no current context");
-        else if (code == GLFW_INVALID_ENUM)
-            strcpy(description, "Invalid argument for enum parameter");
-        else if (code == GLFW_INVALID_VALUE)
-            strcpy(description, "Invalid value for parameter");
-        else if (code == GLFW_OUT_OF_MEMORY)
-            strcpy(description, "Out of memory");
-        else if (code == GLFW_API_UNAVAILABLE)
-            strcpy(description, "The requested API is unavailable");
-        else if (code == GLFW_VERSION_UNAVAILABLE)
-            strcpy(description, "The requested API version is unavailable");
-        else if (code == GLFW_PLATFORM_ERROR)
-            strcpy(description, "A platform-specific error occurred");
-        else if (code == GLFW_FORMAT_UNAVAILABLE)
-            strcpy(description, "The requested format is unavailable");
-        else if (code == GLFW_NO_WINDOW_CONTEXT)
-            strcpy(description, "The specified window has no context");
-        else if (code == GLFW_CURSOR_UNAVAILABLE)
-            strcpy(description, "The specified cursor shape is unavailable");
-        else if (code == GLFW_FEATURE_UNAVAILABLE)
-            strcpy(description, "The requested feature cannot be implemented for this platform");
-        else if (code == GLFW_FEATURE_UNIMPLEMENTED)
-            strcpy(description, "The requested feature has not yet been implemented for this platform");
-        else if (code == GLFW_PLATFORM_UNAVAILABLE)
-            strcpy(description, "The requested platform is unavailable");
-        else
-            strcpy(description, "ERROR: UNKNOWN GLFW ERROR");
-    }
-
-    if (_glfw.initialized)
-    {
-        error = _glfwPlatformGetTls(&_glfw.errorSlot);
-        if (!error)
-        {
-            error = _glfw_calloc(1, sizeof(_GLFWerror));
-            _glfwPlatformSetTls(&_glfw.errorSlot, error);
-            _glfwPlatformLockMutex(&_glfw.errorLock);
-            error->next = _glfw.errorListHead;
-            _glfw.errorListHead = error;
-            _glfwPlatformUnlockMutex(&_glfw.errorLock);
-        }
-    }
-    else
-        error = &_glfwMainThreadError;
-
-    error->code = code;
-    strcpy(error->description, description);
-
-    if (_glfwErrorCallback)
-        _glfwErrorCallback(code, description);
+	if(_glfwErrorCallback)
+		_glfwErrorCallback(code,description);
+}else
+//Just printf error info.
+	fprintf(stderr,"%s",description);
 }
 
+void _glfwInputError(int code,const char* format,...){
+	char description[_GLFW_MESSAGE_SIZE];
+	if(format){
+		va_list vl;
+		va_start(vl, format);
+		vsnprintf(description,sizeof(description),format,vl);
+		va_end(vl);
+	}else
+		return __internal_glfwInputError(code,GLFW_TRUE,NULL);
+	__internal_glfwInputError(code,GLFW_TRUE,description);
+}
+
+void _glfwInputWarning(int code,const char* format,...){
+	char description[_GLFW_MESSAGE_SIZE];
+	if(format){
+		va_list vl;
+		va_start(vl, format);
+		vsnprintf(description,sizeof(description),format,vl);
+		va_end(vl);
+	}else
+		return __internal_glfwInputError(code,GLFW_FALSE,NULL);
+	__internal_glfwInputError(code,GLFW_FALSE,description);
+}
 
 //////////////////////////////////////////////////////////////////////////
 //////                        GLFW public API                       //////

@@ -45,6 +45,9 @@ endif()
 #enable wp_pointer_warp_v1 support,defined as an empty macro when ON
 option(GLFW_ENABLE_POINTER_WARP "Enable wp_pointer_warp_v1 pointer warping" OFF)
 
+#enable xdg_toplevel_icon_v1 support,defined as an empty macro when ON
+option(GLFW_ENABLE_TOPLEVEL_ICON "Enable xdg_toplevel_icon_v1 window icons" OFF)
+
 set(GLFW_LIBRARY_TYPE "${GLFW_LIBRARY_TYPE}" CACHE STRING
     "Library type override for GLFW (SHARED, STATIC, OBJECT, or empty to follow BUILD_SHARED_LIBS)")
 

@@ -950,10 +950,11 @@ void _glfwInputMonitor(_GLFWmonitor* monitor, int action, int placement);
 void _glfwInputMonitorWindow(_GLFWmonitor* monitor, _GLFWwindow* window);
 
 #if defined(__GNUC__)
-void _glfwInputError(int code, const char* format, ...)
-    __attribute__((format(printf, 2, 3)));
+void _glfwInputError(int code, const char* format, ...)__attribute__((format(printf, 2, 3)));
+void _glfwInputWarning(int code,const char* format,...)__attribute__((format(printf, 2, 3)));
 #else
 void _glfwInputError(int code, const char* format, ...);
+void _glfwInputWarning(int code,const char* format,...);
 #endif
 
 
