@@ -23,10 +23,10 @@
 //    distribution.
 //
 //========================================================================
-
-#include <wayland-client-core.h>
-#include <xkbcommon/xkbcommon.h>
-#include <xkbcommon/xkbcommon-compose.h>
+#pragma once
+#include<wayland-client-core.h>
+#include<xkbcommon/xkbcommon.h>
+#include<xkbcommon/xkbcommon-compose.h>
 
 typedef VkFlags VkWaylandSurfaceCreateFlagsKHR;
 
@@ -144,6 +144,8 @@ struct wl_output;
 #define wp_fractional_scale_v1_interface _glfw_wp_fractional_scale_v1_interface
 #define xdg_toplevel_icon_manager_v1_interface _glfw_xdg_toplevel_icon_manager_v1_interface
 #define xdg_toplevel_icon_v1_interface _glfw_xdg_toplevel_icon_v1_interface
+#define zwp_text_input_manager_v3_interface _glfw_zwp_text_input_manager_v3_interface
+#define zwp_text_input_v3_interface _glfw_zwp_text_input_v3_interface
 
 #define GLFW_WAYLAND_WINDOW_STATE         _GLFWwindowWayland  wl;
 #define GLFW_WAYLAND_LIBRARY_WINDOW_STATE _GLFWlibraryWayland wl;
@@ -443,8 +445,17 @@ typedef struct _GLFWwindowWayland
     struct zwp_idle_inhibitor_v1*   idleInhibitor;
     struct xdg_activation_token_v1* activationToken;
 #if defined(GLFW_ENABLE_TOPLEVEL_ICON)
-    //kept alive as long as the icon is set on the toplevel
-    _GLFWtoplevelIconWayland*   icon;
+	//kept alive as long as the icon is set on the toplevel
+	_GLFWtoplevelIconWayland *icon;
+#endif
+
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+	struct zwp_text_input_v3 *textInput;
+	char *textInputPendingCommit;
+	//If its true,that's mean we enter IME @(Pre)Preedit mode.
+	GLFWbool textInputIsPrediting;
+	//Compositor events are double buffered until done.
+	GLFWbool textInputIsPreditPending;
 #endif
 
     struct {
@@ -484,6 +495,9 @@ typedef struct _GLFWlibraryWayland
     struct wp_fractional_scale_manager_v1*  fractionalScaleManager;
 #if defined(GLFW_ENABLE_TOPLEVEL_ICON)
     struct xdg_toplevel_icon_manager_v1*    toplevelIconManager;
+#endif
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+	struct zwp_text_input_manager_v3 *textInputManager;
 #endif
 
     _GLFWofferWayland*          offers;

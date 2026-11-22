@@ -24,41 +24,45 @@
 //
 //========================================================================
 
-#if !defined(_GNU_SOURCE)
- #define _GNU_SOURCE
+#ifndef _GNU_SOURCE
+	#define _GNU_SOURCE
 #endif
+
 
 #include "internal.h"
 
-#if defined(_GLFW_WAYLAND)
+#ifdef _GLFW_WAYLAND
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <assert.h>
-#include <unistd.h>
-#include <string.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/timerfd.h>
-#include <poll.h>
-#include <linux/input-event-codes.h>
+#include<stdio.h>
+#include<stdlib.h>
+#include<errno.h>
+#include<assert.h>
+#include<unistd.h>
+#include<string.h>
+#include<fcntl.h>
+#include<sys/mman.h>
+#include<sys/timerfd.h>
+#include<poll.h>
+#include<linux/input-event-codes.h>
 
-#include "wayland-client-protocol.h"
-#include "xdg-shell-client-protocol.h"
-#include "xdg-decoration-unstable-v1-client-protocol.h"
-#include "viewporter-client-protocol.h"
-#include "relative-pointer-unstable-v1-client-protocol.h"
-#include "pointer-constraints-unstable-v1-client-protocol.h"
-#if defined(GLFW_ENABLE_POINTER_WARP)
-#include "pointer-warp-v1-client-protocol.h"
+#include"wayland-client-protocol.h"
+#include"xdg-shell-client-protocol.h"
+#include"xdg-decoration-unstable-v1-client-protocol.h"
+#include"viewporter-client-protocol.h"
+#include"relative-pointer-unstable-v1-client-protocol.h"
+#include"pointer-constraints-unstable-v1-client-protocol.h"
+#ifdef GLFW_ENABLE_POINTER_WARP
+	#include"pointer-warp-v1-client-protocol.h"
 #endif
-#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
-#include "xdg-toplevel-icon-v1-client-protocol.h"
+#ifdef GLFW_ENABLE_TOPLEVEL_ICON
+	#include"xdg-toplevel-icon-v1-client-protocol.h"
 #endif
-#include "xdg-activation-v1-client-protocol.h"
-#include "idle-inhibit-unstable-v1-client-protocol.h"
-#include "fractional-scale-v1-client-protocol.h"
+#ifdef  GLFW_ENABLE_TEXT_INPUT_V3
+	#include"text-input-unstable-v3-client-protocol.h"
+#endif
+#include"xdg-activation-v1-client-protocol.h"
+#include"idle-inhibit-unstable-v1-client-protocol.h"
+#include"fractional-scale-v1-client-protocol.h"
 
 #define GLFW_BORDER_SIZE    4
 #define GLFW_CAPTION_HEIGHT 24
@@ -69,15 +73,12 @@
 #define GLFW_PENDING_SCROLL     8
 #define GLFW_PENDING_DISCRETE   16
 
-static int createTmpfileCloexec(char* tmpname)
-{
-    int fd;
-
-    fd = mkostemp(tmpname, O_CLOEXEC);
-    if (fd >= 0)
-        unlink(tmpname);
-
-    return fd;
+//Create a invisionable tmporary file.
+static int createTmpfileCloexec(char* tmpname){
+	int fd=mkostemp(tmpname,O_CLOEXEC);
+	if(fd>=0)
+		unlink(tmpname);
+	return fd;
 }
 
 /*
@@ -158,109 +159,100 @@ static int createAnonymousFile(off_t size)
 }
 
 //always_inline lets the compiler fold the error paths away for constant callers.
-__attribute__((always_inline)) static inline struct wl_buffer* createShmBufferInternal(const GLFWimage* image,GLFWbool raiseErrors){
-    const int stride = image->width * 4;
-    const int length = image->width * image->height * 4;
+__attribute__((always_inline)) static inline struct wl_buffer* l_createShmBuffer(const GLFWimage* image,GLFWbool raiseErrors){
+	const int stride=image->width * 4;
+	const int length=image->width * image->height * 4;
 
-    const int fd = createAnonymousFile(length);
-    if (fd < 0)
-    {
-        if (raiseErrors)
-            _glfwInputError(GLFW_PLATFORM_ERROR,"Wayland: Failed to create buffer file of size %d: %s",length, strerror(errno));
-        else
-            _glfwInputWarning(GLFW_PLATFORM_ERROR,"Wayland: Failed to create buffer file of size %d: %s",length, strerror(errno));
-        return NULL;
-    }
+	const int fd=createAnonymousFile(length);
+	if(fd<0){
+		if (raiseErrors)
+			_glfwInputError(GLFW_PLATFORM_ERROR,"Wayland: Failed to create buffer file of size %d: %s",length, strerror(errno));
+		else
+			_glfwInputWarning(GLFW_PLATFORM_ERROR,"Wayland: Failed to create buffer file of size %d: %s",length, strerror(errno));
+		return NULL;
+	}
 
-    void* data = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (data == MAP_FAILED)
-    {
-        if (raiseErrors)
-            _glfwInputError(GLFW_PLATFORM_ERROR,"Wayland: Failed to map file: %s", strerror(errno));
-        else
-            _glfwInputWarning(GLFW_PLATFORM_ERROR,"Wayland: Failed to map file: %s", strerror(errno));
-        close(fd);
-        return NULL;
-    }
+	void* data=mmap(NULL,length,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);
+	if(data==MAP_FAILED){
+		if(raiseErrors)
+			_glfwInputError(GLFW_PLATFORM_ERROR,"Wayland: Failed to map file: %s", strerror(errno));
+		else
+			_glfwInputWarning(GLFW_PLATFORM_ERROR,"Wayland: Failed to map file: %s", strerror(errno));
+		close(fd);
+		return NULL;
+	}
 
-    struct wl_shm_pool* pool = wl_shm_create_pool(_glfw.wl.shm, fd, length);
+	struct wl_shm_pool* pool = wl_shm_create_pool(_glfw.wl.shm, fd, length);
+	close(fd);
+	unsigned char* source = (unsigned char*) image->pixels;
+	unsigned char* target = data;
+	for(int i=0;i<image->width*image->height;i++,source+=4){
+		unsigned int alpha = source[3];
 
-    close(fd);
+		*target++=(unsigned char)((source[2]*alpha)/255);
+		*target++=(unsigned char)((source[1]*alpha)/255);
+		*target++=(unsigned char)((source[0]*alpha)/255);
+		*target++=(unsigned char)alpha;
+	}
 
-    unsigned char* source = (unsigned char*) image->pixels;
-    unsigned char* target = data;
-    for (int i = 0;  i < image->width * image->height;  i++, source += 4)
-    {
-        unsigned int alpha = source[3];
-
-        *target++ = (unsigned char) ((source[2] * alpha) / 255);
-        *target++ = (unsigned char) ((source[1] * alpha) / 255);
-        *target++ = (unsigned char) ((source[0] * alpha) / 255);
-        *target++ = (unsigned char) alpha;
-    }
-
-    struct wl_buffer* buffer =
-        wl_shm_pool_create_buffer(pool, 0,
-                                  image->width,
-                                  image->height,
-                                  stride, WL_SHM_FORMAT_ARGB8888);
-    munmap(data, length);
-    wl_shm_pool_destroy(pool);
-
-    return buffer;
+	struct wl_buffer *buffer=wl_shm_pool_create_buffer(pool,0,image->width,image->height,stride,WL_SHM_FORMAT_ARGB8888);
+	munmap(data,length);
+	wl_shm_pool_destroy(pool);
+	return buffer;
 }
 
-static inline __attribute__((always_inline)) struct wl_buffer* createShmBuffer(const GLFWimage* image)
-{
-    return createShmBufferInternal(image, GLFW_TRUE);
+//Wraper for l_createShmBuffer:
+static inline __attribute__((always_inline)) struct wl_buffer* createShmBuffer(const GLFWimage* image){
+	return l_createShmBuffer(image,GLFW_TRUE);
 }
 
-#if defined(GLFW_ENABLE_TOPLEVEL_ICON)
-//the compositor only accepts square icon buffers,crop the center of non-square images
-static struct wl_buffer* createIconShmBuffer(const GLFWimage* image)
-{
-    if (image->width == image->height)
-        return createShmBufferInternal(image, GLFW_FALSE);
+#ifdef GLFW_ENABLE_TOPLEVEL_ICON
+static struct wl_buffer* createIconShmBuffer(const GLFWimage *image){
+	if(!image)
+		return NULL;
+	GLFWimage vaild_image;
+	__builtin_memcpy(&vaild_image,image,sizeof(GLFWimage));
+	//The compositor only accepts square icon buffers
+	if(vaild_image.width!=vaild_image.height){
+		//Crop the center of non-square images.
+		const size_t side=_glfw_min(vaild_image.width,image->height);
+		const size_t xoffset=(vaild_image.width-side)>>1;
+		const size_t yoffset=(vaild_image.height-side)>>1;
 
-    const int side = _glfw_min(image->width, image->height);
-    const int xoffset = (image->width - side) / 2;
-    const int yoffset = (image->height - side) / 2;
+		//Alloc a tmp mem for croped image,it will clean automatically.
+		ACF(_glfw_auto_free) unsigned char* pixels=_glfw_calloc((size_t)side*side,4);
+		if(!pixels)
+			return NULL;
 
-    unsigned char* pixels = _glfw_calloc((size_t) side * side, 4);
-    if (!pixels)
-        return NULL;
-
-    for (int y = 0;  y < side;  y++)
-    {
-        memcpy(pixels + (size_t) y * side * 4,
-               image->pixels + ((size_t) (y + yoffset) * image->width + xoffset) * 4,
-               (size_t) side * 4);
-    }
-
-    const GLFWimage square = { side, side, pixels };
-    //an optional icon must never raise a GLFW error,the caller would kill the app
-    struct wl_buffer* buffer = createShmBufferInternal(&square, GLFW_FALSE);
-    _glfw_free(pixels);
-    return buffer;
+		for(size_t y=0;y<side;y++){
+			memcpy(pixels+y*(side<<2),
+				vaild_image.pixels+(y+yoffset)*vaild_image.width+(xoffset<<2),
+				side<<2);
+		}
+		//Update vaild image,use squared one.
+		vaild_image.height=side;
+		vaild_image.width=side;
+		vaild_image.pixels=pixels;
+	}
+	return l_createShmBuffer(&vaild_image,GLFW_FALSE);
 }
 
-static void destroyToplevelIconWayland(_GLFWwindow* window)
-{
-    _GLFWtoplevelIconWayland* icon = window->wl.icon;
-    if (!icon)
-        return;
+static void destroyToplevelIconWayland(_GLFWwindow* window){
+	_GLFWtoplevelIconWayland *icon=window->wl.icon;
+	if(!icon)
+		return;
 
-    window->wl.icon = NULL;
+	window->wl.icon=NULL;
 
-    //destroy the icon object first,the buffers only have to outlive it
-    if (icon->icon)
-        xdg_toplevel_icon_v1_destroy(icon->icon);
+	//destroy the icon object first,the buffers only have to outlive it
+	if(icon->icon)
+		xdg_toplevel_icon_v1_destroy(icon->icon);
 
-    for (size_t i = 0;  i < icon->bufferCount;  i++)
-        wl_buffer_destroy(icon->buffers[i]);
+	for (size_t i=0;i<icon->bufferCount;i++)
+		wl_buffer_destroy(icon->buffers[i]);
 
-    _glfw_free(icon->buffers);
-    _glfw_free(icon);
+	_glfw_free(icon->buffers);
+	_glfw_free(icon);
 }
 
 static struct xdg_toplevel* getToplevelWayland(_GLFWwindow* window)
@@ -272,21 +264,122 @@ static struct xdg_toplevel* getToplevelWayland(_GLFWwindow* window)
 }
 
 //the icon may be set before the toplevel exists or after it was recreated
-static void applyToplevelIconWayland(_GLFWwindow* window)
-{
-    struct xdg_toplevel* toplevel;
+static void applyToplevelIconWayland(_GLFWwindow* window){
+	if(!window->wl.icon)
+		return;
 
-    if (!window->wl.icon)
-        return;
+	struct xdg_toplevel* toplevel=getToplevelWayland(window);
+	if(!toplevel)
+		return;
 
-    toplevel = getToplevelWayland(window);
-    if (!toplevel)
-        return;
-
-    xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.toplevelIconManager,
-                                          toplevel, window->wl.icon->icon);
+	xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.toplevelIconManager,toplevel,window->wl.icon->icon);
 }
 #endif
+
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+/*
+Event Enter will be boardcast to every handle,
+so check flag first, if not match just ignore it.
+*/
+static void textInputHandleEnter(void *userData,struct zwp_text_input_v3 *textInput,struct wl_surface *surface){
+	_GLFWwindow* window=userData;
+	if(surface!=window->wl.surface)
+		return;
+	//It only have effect when user typing,clean it by default.
+	window->wl.textInputIsPrediting=GLFW_FALSE;
+	window->wl.textInputIsPreditPending=GLFW_FALSE;
+	_glfw_free(window->wl.textInputPendingCommit);
+	window->wl.textInputPendingCommit=NULL;
+
+	zwp_text_input_v3_enable(textInput);
+	zwp_text_input_v3_set_content_type(textInput,
+		ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE,
+		ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL);
+	//there is no caret API for the app,anchor the candidate window to the bottom left
+	zwp_text_input_v3_set_cursor_rectangle(textInput,0,window->wl.height,0,0);
+	zwp_text_input_v3_commit(textInput);
+}
+
+static void textInputHandleLeave
+(void *userData,struct zwp_text_input_v3 *textInput,struct wl_surface *surface){
+	_GLFWwindow* window=userData;
+	if(surface!=window->wl.surface)
+		return;
+
+	window->wl.textInputIsPrediting=GLFW_FALSE;
+	window->wl.textInputIsPreditPending=GLFW_FALSE;
+
+	_glfw_free(window->wl.textInputPendingCommit);
+	window->wl.textInputPendingCommit=NULL;
+
+	zwp_text_input_v3_disable(textInput);
+	zwp_text_input_v3_commit(textInput);
+}
+
+static void textInputHandlePreeditString
+(void *userData,struct zwp_text_input_v3 *textInput,const char *text,int32_t cursorBegin,int32_t cursorEnd){
+	_GLFWwindow *window=userData;
+
+	//If there have vaild char in the preedit test,set it to true.
+	window->wl.textInputIsPreditPending=(text&&*text)?GLFW_TRUE:GLFW_FALSE;
+}
+
+//Copy commited string to local wl res.
+static void textInputHandleCommitString(void *userData,struct zwp_text_input_v3 *textInput,const char *text){
+	_GLFWwindow *window=userData;
+	char* copy;
+
+	if(text&&*text){
+		copy=_glfw_strdup(text);
+		if(!copy)
+			return;
+	}
+
+	_glfw_free(window->wl.textInputPendingCommit);
+	window->wl.textInputPendingCommit=copy;
+}
+
+static void textInputHandleDeleteSurroundingText
+(void *userData,struct zwp_text_input_v3 *textInput,uint32_t beforeLength,uint32_t afterLength){
+	//no surrounding text is ever sent,so there is nothing to delete
+}
+
+static void textInputHandleDone(void *userData,struct zwp_text_input_v3 *textInput,uint32_t serial){
+	_GLFWwindow *window=userData;
+	//Detach the buffer first,character callbacks may pump events again:
+	ACF(_glfw_auto_free) char* text=window->wl.textInputPendingCommit;
+	window->wl.textInputPendingCommit=NULL;
+
+	//There have no text,ignore this time.
+	if(!text||!*text)
+		return;
+	const int mods=_glfw.wl.xkb.modifiers;
+	//If there have modifier key pressed,set it to false.
+	const GLFWbool plain=!(mods&(GLFW_MOD_CONTROL|GLFW_MOD_ALT));
+
+	//the composition ends with this batch,do not touch window after the callbacks
+	window->wl.textInputIsPrediting=window->wl.textInputIsPreditPending;
+	window->wl.textInputIsPreditPending=GLFW_FALSE;
+
+	const char *current=text;
+	//Decode committed text(UTF8), and then pass it to the app.
+	//Becase GLFW not implement window's life manager,so stop commit window is not focus or destroy.
+	while(*current&&_glfw.wl.keyboardFocus==window){
+		const uint32_t codepoint=_glfwDecodeUTF8(&current);
+		_glfwInputChar(window,codepoint,mods,plain);
+	}
+}
+
+static const struct zwp_text_input_v3_listener textInputListener={
+	textInputHandleEnter,
+	textInputHandleLeave,
+	textInputHandlePreeditString,
+	textInputHandleCommitString,
+	textInputHandleDeleteSurroundingText,
+	textInputHandleDone
+};
+
+#endif//GLFW_ENABLE_TEXT_INPUT_V3
 
 static void callbackHandleDone(void* userData, struct wl_callback* callback, uint32_t data)
 {
@@ -1556,6 +1649,13 @@ static void handleEvents(double* timeout)
                 {
                     for (uint64_t i = 0; i < repeats; i++)
                     {
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+						//Ignore input event,when IME handling input event.
+						if (_glfw.wl.keyboardFocus->wl.textInputIsPrediting||
+								_glfw.wl.keyboardFocus->wl.textInputIsPreditPending){
+							continue;
+						}
+#endif
                         _glfwInputKey(_glfw.wl.keyboardFocus,
                                       translateKey(_glfw.wl.keyRepeatScancode),
                                       _glfw.wl.keyRepeatScancode,
@@ -2053,6 +2153,13 @@ static void keyboardHandleLeave(void* userData,
 
     _glfw.wl.serial = serial;
     _glfw.wl.keyboardFocus = NULL;
+
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+	//the text input leave event should do this too,never keep keys stuck here
+	window->wl.textInputIsPrediting=GLFW_FALSE;
+	window->wl.textInputIsPreditPending=GLFW_FALSE;
+#endif
+
     _glfwInputWindowFocus(window, GLFW_FALSE);
 }
 
@@ -2072,6 +2179,13 @@ static void keyboardHandleKey(void* userData,
         state == WL_KEYBOARD_KEY_STATE_PRESSED ? GLFW_PRESS : GLFW_RELEASE;
 
     _glfw.wl.serial = serial;
+
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+	//If IMW handling input event,ignore input event in GLFW
+	if(action==GLFW_PRESS&&(window->wl.textInputIsPrediting||window->wl.textInputIsPreditPending)){
+		return;
+	}
+#endif
 
     struct itimerspec timer = {0};
 
@@ -2555,6 +2669,16 @@ GLFWbool _glfwCreateWindowWayland(_GLFWwindow* window,
             return GLFW_FALSE;
     }
 
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+	//Setup V3 support when creating window.
+    if(_glfw.wl.textInputManager&&_glfw.wl.seat){
+        window->wl.textInput=zwp_text_input_manager_v3_get_text_input(_glfw.wl.textInputManager,_glfw.wl.seat);
+        if (window->wl.textInput){
+            zwp_text_input_v3_add_listener(window->wl.textInput,&textInputListener, window);
+        }
+    }
+#endif
+
     return GLFW_TRUE;
 }
 
@@ -2573,9 +2697,18 @@ void _glfwDestroyWindowWayland(_GLFWwindow* window)
 
     if (window->wl.fractionalScale)
         wp_fractional_scale_v1_destroy(window->wl.fractionalScale);
-
 #if defined(GLFW_ENABLE_TOPLEVEL_ICON)
-    destroyToplevelIconWayland(window);
+	//Destroy its icon.
+	destroyToplevelIconWayland(window);
+#endif
+
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+	//Destory V3 resouce and local cache.
+	if(window->wl.textInput)
+	    zwp_text_input_v3_destroy(window->wl.textInput);
+
+	_glfw_free(window->wl.textInputPendingCommit);
+	window->wl.textInputPendingCommit = NULL;
 #endif
 
     if (window->wl.scalingViewport)

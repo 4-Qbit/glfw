@@ -175,6 +175,24 @@ size_t _glfwEncodeUTF8(char* s, uint32_t codepoint)
     return count;
 }
 
+//Decode a Unicode code point from a UTF-8 stream
+//Based on cutef8 by Jeff Bezanson (Public Domain)
+uint32_t _glfwDecodeUTF8(const char** s){
+	uint32_t codepoint=0;
+	int count=-1;
+	static const uint32_t offsets[]={
+		0x00000000u,0x00003080u,0x000e2080u,
+		0x03c82080u,0xfa082080u,0x82082080u};
+	do{
+		codepoint=(codepoint<<6)+(unsigned char)**s;
+		(*s)++;
+		count++;
+	}while(count<3&&(**s&0xc0)==0x80);
+	//malformed input must not walk past the offset table
+	assert(count<=3);
+	return codepoint-offsets[count];
+}
+
 // Splits and translates a text/uri-list into separate file paths
 // NOTE: This function destroys the provided string
 //
@@ -293,10 +311,15 @@ void* _glfw_realloc(void* block, size_t size)
         return _glfw_calloc(1, size);
 }
 
-void _glfw_free(void* block)
-{
-    if (block)
-        _glfw.allocator.deallocate(block, _glfw.allocator.user);
+//Normal function body:
+void _glfw_auto_free(void *pptr){
+	if(pptr&&*(void**)pptr)
+		_glfw.allocator.deallocate(*(void**)pptr,_glfw.allocator.user);
+}
+
+void _glfw_free(void* block){
+	if(block)
+		_glfw.allocator.deallocate(block,_glfw.allocator.user);
 }
 
 

@@ -52,6 +52,9 @@
 #if defined(GLFW_ENABLE_TOPLEVEL_ICON)
 	#include "xdg-toplevel-icon-v1-client-protocol.h"
 #endif
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+	#include "text-input-unstable-v3-client-protocol.h"
+#endif
 #include "fractional-scale-v1-client-protocol.h"
 #include "xdg-activation-v1-client-protocol.h"
 #include "idle-inhibit-unstable-v1-client-protocol.h"
@@ -94,6 +97,12 @@
 #if defined(GLFW_ENABLE_TOPLEVEL_ICON)
 	#define types _glfw_toplevel_icon_types
 	#include "xdg-toplevel-icon-v1-client-protocol-code.h"
+	#undef types
+#endif
+
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+	#define types _glfw_text_input_v3_types
+	#include "text-input-unstable-v3-client-protocol-code.h"
 	#undef types
 #endif
 
@@ -221,10 +230,9 @@ static void registryHandleGlobal(void* userData,
     }
 //Add support for pointer warp.
 #if defined(GLFW_ENABLE_POINTER_WARP)
-    else if (strcmp(interface, "wp_pointer_warp_v1") == 0)
+    else if (!strcmp(interface, "wp_pointer_warp_v1"))
     {
-        if (!_glfw.wl.pointerWarp)
-        {
+        if (!_glfw.wl.pointerWarp){
             _glfw.wl.pointerWarp =
                 wl_registry_bind(registry, name,
                                  &wp_pointer_warp_v1_interface,
@@ -232,21 +240,21 @@ static void registryHandleGlobal(void* userData,
         }
     }
 #endif
-    else if (strcmp(interface, "zwp_idle_inhibit_manager_v1") == 0)
+    else if (!strcmp(interface,"zwp_idle_inhibit_manager_v1") )
     {
         _glfw.wl.idleInhibitManager =
             wl_registry_bind(registry, name,
                              &zwp_idle_inhibit_manager_v1_interface,
                              1);
     }
-    else if (strcmp(interface, "xdg_activation_v1") == 0)
+    else if (!strcmp(interface,"xdg_activation_v1"))
     {
         _glfw.wl.activationManager =
             wl_registry_bind(registry, name,
                              &xdg_activation_v1_interface,
                              1);
     }
-    else if (strcmp(interface, "wp_fractional_scale_manager_v1") == 0)
+    else if (!strcmp(interface, "wp_fractional_scale_manager_v1"))
     {
         _glfw.wl.fractionalScaleManager =
             wl_registry_bind(registry, name,
@@ -255,7 +263,7 @@ static void registryHandleGlobal(void* userData,
     }
 //Add support for toplevle icon.
 #if defined(GLFW_ENABLE_TOPLEVEL_ICON)
-    else if (strcmp(interface, "xdg_toplevel_icon_manager_v1") == 0)
+    else if (!strcmp(interface,"xdg_toplevel_icon_manager_v1"))
     {
         _glfw.wl.toplevelIconManager =
             wl_registry_bind(registry, name,
@@ -265,6 +273,12 @@ static void registryHandleGlobal(void* userData,
                                                   &toplevelIconManagerListener,
                                                   NULL);
     }
+#endif
+//Add support for text input v3
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+	else if (!strcmp(interface,"zwp_text_input_manager_v3")){
+		_glfw.wl.textInputManager=wl_registry_bind(registry,name,&zwp_text_input_manager_v3_interface,1);
+	}
 #endif
 }
 
@@ -1048,8 +1062,8 @@ void _glfwTerminateWayland(void)
     if (_glfw.wl.pointerConstraints)
         zwp_pointer_constraints_v1_destroy(_glfw.wl.pointerConstraints);
 #if defined(GLFW_ENABLE_POINTER_WARP)
-    if (_glfw.wl.pointerWarp)
-        wp_pointer_warp_v1_destroy(_glfw.wl.pointerWarp);
+	if(_glfw.wl.pointerWarp)
+		wp_pointer_warp_v1_destroy(_glfw.wl.pointerWarp);
 #endif
     if (_glfw.wl.idleInhibitManager)
         zwp_idle_inhibit_manager_v1_destroy(_glfw.wl.idleInhibitManager);
@@ -1058,8 +1072,12 @@ void _glfwTerminateWayland(void)
     if (_glfw.wl.fractionalScaleManager)
         wp_fractional_scale_manager_v1_destroy(_glfw.wl.fractionalScaleManager);
 #if defined(GLFW_ENABLE_TOPLEVEL_ICON)
-    if (_glfw.wl.toplevelIconManager)
-        xdg_toplevel_icon_manager_v1_destroy(_glfw.wl.toplevelIconManager);
+	if(_glfw.wl.toplevelIconManager)
+	        xdg_toplevel_icon_manager_v1_destroy(_glfw.wl.toplevelIconManager);
+#endif
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+	if(_glfw.wl.textInputManager)
+		zwp_text_input_manager_v3_destroy(_glfw.wl.textInputManager);
 #endif
     if (_glfw.wl.registry)
         wl_registry_destroy(_glfw.wl.registry);

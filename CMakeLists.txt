@@ -42,11 +42,14 @@ if (NOT GLFW_UNLOCK_CUR_METHOD STREQUAL "1" AND
     message(FATAL_ERROR "GLFW_UNLOCK_CUR_METHOD must be 1 or 2")
 endif()
 
-#enable wp_pointer_warp_v1 support,defined as an empty macro when ON
+#Enable wp_pointer_warp_v1
 option(GLFW_ENABLE_POINTER_WARP "Enable wp_pointer_warp_v1 pointer warping" OFF)
 
-#enable xdg_toplevel_icon_v1 support,defined as an empty macro when ON
+#Xdg_toplevel_icon_v1 support.
 option(GLFW_ENABLE_TOPLEVEL_ICON "Enable xdg_toplevel_icon_v1 window icons" OFF)
+
+#Zwp_text_input_v3 support.
+option(GLFW_ENABLE_TEXT_INPUT_V3 "Enable zwp_text_input_v3 text input (IME)" OFF)
 
 set(GLFW_LIBRARY_TYPE "${GLFW_LIBRARY_TYPE}" CACHE STRING
     "Library type override for GLFW (SHARED, STATIC, OBJECT, or empty to follow BUILD_SHARED_LIBS)")

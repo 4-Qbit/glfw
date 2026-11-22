@@ -1013,6 +1013,7 @@ void _glfwTerminateVulkan(void);
 const char* _glfwGetVulkanResultString(VkResult result);
 
 size_t _glfwEncodeUTF8(char* s, uint32_t codepoint);
+uint32_t _glfwDecodeUTF8(const char** s);
 char** _glfwParseUriList(char* text, int* count);
 
 char* _glfw_strdup(const char* source);
@@ -1021,5 +1022,11 @@ int _glfw_max(int a, int b);
 
 void* _glfw_calloc(size_t count, size_t size);
 void* _glfw_realloc(void* pointer, size_t size);
-void _glfw_free(void* pointer);
-
+void _glfw_free(void* block);
+//Cleanup helper:
+__attribute__((gnu_inline)) extern inline void _glfw_auto_free(void *pptr){
+	if(pptr&&*(void**)pptr)
+		_glfw.allocator.deallocate(*(void**)pptr,_glfw.allocator.user);
+}
+//Temporary define:
+#define ACF(function_name) __attribute__((cleanup(function_name)))
