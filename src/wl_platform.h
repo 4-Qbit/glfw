@@ -458,6 +458,8 @@ typedef struct _GLFWwindowWayland
 	char *textInputCommited;
 	//If its true,that's mean we enter IME @(Pre)Preedit mode, its a internal sign.
 	GLFWbool textInputIsPrediting;
+	//True while the compositor has the input enabled(v3) or activated(v1).
+	GLFWbool textInputIsEnabled;
 #endif
 
 #ifdef GLFW_ENABLE_TEXT_INPUT_V3

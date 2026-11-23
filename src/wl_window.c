@@ -292,6 +292,30 @@ static inline GLFWbool l_text_input_is_composing(_GLFWwindow* window){
 	return GLFW_FALSE;
 }
 
+//Reflash IME preedit position, GLFW has no caret API.
+static void l_text_input_update_cursor_rect(_GLFWwindow* window){
+	//v1 and v3 only accept state changes while the input is active.
+	if(!window->wl.textInputIsEnabled)
+		return;
+
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+	if(window->wl.textInputV3){
+		zwp_text_input_v3_set_cursor_rectangle(window->wl.textInputV3,
+			0,window->wl.height-1,1,1);
+		zwp_text_input_v3_commit(window->wl.textInputV3);
+		return;
+	}
+#endif
+#ifdef GLFW_ENABLE_TEXT_INPUT_V1
+	if(window->wl.textInputV1){
+		zwp_text_input_v1_set_cursor_rectangle(window->wl.textInputV1,
+			0,window->wl.height-1,1,1);
+		zwp_text_input_v1_commit_state(window->wl.textInputV1,
+			++window->wl.textInputV1Serial);
+	}
+#endif
+}
+
 /*
 Hand a UTF8 commit string to the app as character events.
 requireFocus is set for normal commits and cleared for the v1 reset text,
@@ -328,16 +352,17 @@ static void l_text_input_v1_activate(_GLFWwindow *window){
 	zwp_text_input_v1_set_content_type(window->wl.textInputV1,
 		ZWP_TEXT_INPUT_V1_CONTENT_HINT_NONE,
 		ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_NORMAL);
-	//there is no caret API for the app,anchor the candidate window to the bottom left:
-	zwp_text_input_v1_set_cursor_rectangle(window->wl.textInputV1,0,window->wl.height,0,0);
 
 	//Publish the state,compositors use this serial to talk to the input method.
-	zwp_text_input_v1_commit_state(window->wl.textInputV1,++window->wl.textInputV1Serial);
+	window->wl.textInputIsEnabled=GLFW_TRUE;
+	l_text_input_update_cursor_rect(window);
 }
 
 static void l_text_input_v1_deactivate(_GLFWwindow *window){
 	if(!window->wl.textInputV1||!_glfw.wl.seat)
 		return;
+
+	window->wl.textInputIsEnabled=GLFW_FALSE;
 	zwp_text_input_v1_deactivate(window->wl.textInputV1,_glfw.wl.seat);
 }
 #endif
@@ -362,9 +387,9 @@ static void textInputV3HandleEnter
 	zwp_text_input_v3_set_content_type(textInput,
 		ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE,
 		ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL);
-	//there is no caret API for the app,anchor the candidate window to the bottom left
-	zwp_text_input_v3_set_cursor_rectangle(textInput,0,window->wl.height,0,0);
-	zwp_text_input_v3_commit(textInput);
+	window->wl.textInputIsEnabled=GLFW_TRUE;
+	//Commit the enabled state together with the cursor rectangle.
+	l_text_input_update_cursor_rect(window);
 }
 
 static void textInputV3HandleLeave
@@ -375,6 +400,7 @@ static void textInputV3HandleLeave
 
 	window->wl.textInputIsPrediting=GLFW_FALSE;
 	window->wl.textInputIsPreditPending=GLFW_FALSE;
+	window->wl.textInputIsEnabled=GLFW_FALSE;
 
 	_glfw_free(window->wl.textInputCommited);
 	window->wl.textInputCommited=NULL;
@@ -745,6 +771,12 @@ static GLFWbool resizeWindow(_GLFWwindow* window, int width, int height)
 
     window->wl.width = width;
     window->wl.height = height;
+
+	//Reflash IME position, when window was resized
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)||defined(GLFW_ENABLE_TEXT_INPUT_V1)
+	//Keep the IME popup anchored while the window resizes or goes fullscreen.
+	l_text_input_update_cursor_rect(window);
+#endif
 
     resizeFramebuffer(window);
 
@@ -2301,6 +2333,7 @@ static void l_text_input_v1_handle_leave(void *userData,struct zwp_text_input_v1
 
 	//The compositor already deactivated, just drop the composing state.
 	window->wl.textInputIsPrediting=GLFW_FALSE;
+	window->wl.textInputIsEnabled=GLFW_FALSE;
 
 	//v1 may ask to replace the cancelled preedit with this text.
 	//It arrives after the keyboard may have moved on,so do not require focus.
