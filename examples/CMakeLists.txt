@@ -47,7 +47,7 @@ set(GUI_ONLY_BINARIES boing gears heightmap particles sharing splitview
 set(CONSOLE_BINARIES offscreen)
 
 set_target_properties(${GUI_ONLY_BINARIES} ${CONSOLE_BINARIES} PROPERTIES
-                      C_STANDARD 99
+                      C_STANDARD 23
                       FOLDER "GLFW3/Examples")
 
 if (MSVC)

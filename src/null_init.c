@@ -117,7 +117,7 @@ GLFWbool _glfwConnectNull(int platformID, _GLFWplatform* platform)
     return GLFW_TRUE;
 }
 
-int _glfwInitNull(void)
+GLFWbool _glfwInitNull(void)
 {
     int scancode;
 

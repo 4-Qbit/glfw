@@ -26,7 +26,7 @@
 //========================================================================
 
 #pragma once
-
+#include<qtypes.h>
 #if defined(_GLFW_USE_CONFIG_H)
  #include "glfw_config.h"
 #endif
@@ -48,8 +48,6 @@
 #define GLFW_INCLUDE_NONE
 #include "../include/GLFW/glfw3.h"
 
-#include <stdbool.h>
-
 #define _GLFW_INSERT_FIRST      0
 #define _GLFW_INSERT_LAST       1
 
@@ -60,7 +58,7 @@
 
 #define _GLFW_MESSAGE_SIZE      1024
 
-typedef int GLFWbool;
+typedef bool GLFWbool;
 typedef void (*GLFWproc)(void);
 
 typedef struct _GLFWerror       _GLFWerror;
@@ -1028,5 +1026,3 @@ __attribute__((gnu_inline)) extern inline void _glfw_auto_free(void *pptr){
 	if(pptr&&*(void**)pptr)
 		_glfw.allocator.deallocate(*(void**)pptr,_glfw.allocator.user);
 }
-//Temporary define:
-#define ACF(function_name) __attribute__((cleanup(function_name)))

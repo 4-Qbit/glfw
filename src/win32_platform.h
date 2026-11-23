@@ -467,7 +467,7 @@ typedef struct _GLFWcursorWin32
 
 
 GLFWbool _glfwConnectWin32(int platformID, _GLFWplatform* platform);
-int _glfwInitWin32(void);
+GLFWbool _glfwInitWin32(void);
 void _glfwTerminateWin32(void);
 
 WCHAR* _glfwCreateWideStringFromUTF8Win32(const char* source);

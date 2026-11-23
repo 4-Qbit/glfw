@@ -1,6 +1,9 @@
-cmake_minimum_required(VERSION 3.16...3.28 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.21...3.28 FATAL_ERROR)
 
 project(GLFW VERSION 3.6.0 LANGUAGES C HOMEPAGE_URL "https://www.glfw.org/")
+
+set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 

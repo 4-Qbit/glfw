@@ -54,7 +54,7 @@ set(CONSOLE_BINARIES allocator clipboard events msaa glfwinfo iconify monitors
     reopen cursor)
 
 set_target_properties(${GUI_ONLY_BINARIES} ${CONSOLE_BINARIES} PROPERTIES
-                      C_STANDARD 99
+                      C_STANDARD 23
                       FOLDER "GLFW3/Tests")
 
 if (MSVC)

@@ -536,7 +536,7 @@ GLFWbool _glfwConnectCocoa(int platformID, _GLFWplatform* platform)
     return GLFW_TRUE;
 }
 
-int _glfwInitCocoa(void)
+GLFWbool _glfwInitCocoa(void)
 {
     @autoreleasepool {
 

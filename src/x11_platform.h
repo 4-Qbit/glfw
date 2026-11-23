@@ -897,7 +897,7 @@ typedef struct _GLFWcursorX11
 
 
 GLFWbool _glfwConnectX11(int platformID, _GLFWplatform* platform);
-int _glfwInitX11(void);
+GLFWbool _glfwInitX11(void);
 void _glfwTerminateX11(void);
 
 GLFWbool _glfwCreateWindowX11(_GLFWwindow* window, const _GLFWwndconfig* wndconfig, const _GLFWctxconfig* ctxconfig, const _GLFWfbconfig* fbconfig);

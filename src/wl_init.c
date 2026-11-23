@@ -644,7 +644,7 @@ GLFWbool _glfwConnectWayland(int platformID, _GLFWplatform* platform)
     return GLFW_TRUE;
 }
 
-int _glfwInitWayland(void)
+GLFWbool _glfwInitWayland(void)
 {
     // These must be set before any failure checks
     _glfw.wl.keyRepeatTimerfd = -1;

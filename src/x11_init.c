@@ -1318,7 +1318,7 @@ GLFWbool _glfwConnectX11(int platformID, _GLFWplatform* platform)
     return GLFW_TRUE;
 }
 
-int _glfwInitX11(void)
+GLFWbool _glfwInitX11(void)
 {
     _glfw.x11.xlib.AllocClassHint = (PFN_XAllocClassHint)
         _glfwPlatformGetModuleSymbol(_glfw.x11.xlib.handle, "XAllocClassHint");

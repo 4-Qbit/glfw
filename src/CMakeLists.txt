@@ -20,6 +20,20 @@ else()
                                 posix_time.c posix_thread.c)
 endif()
 
+#Qlib is new part of glfw, only list the files that compile today.
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "qlib is only supported on Linux")
+endif()
+
+set(QLIB_SOURCES
+    "${GLFW_SOURCE_DIR}/qlib/implement/misclib.c"
+    "${GLFW_SOURCE_DIR}/qlib/implement/qtypes.c")
+target_sources(glfw PRIVATE ${QLIB_SOURCES})
+target_include_directories(glfw PRIVATE "${GLFW_SOURCE_DIR}/qlib")
+#qlib needs _GNU_SOURCE(mempcpy and friends)no matter what glfw sets.
+set_source_files_properties(${QLIB_SOURCES} PROPERTIES
+                            COMPILE_DEFINITIONS "_GNU_SOURCE")
+
 add_custom_target(update_mappings
     COMMAND "${CMAKE_COMMAND}" -P "${GLFW_SOURCE_DIR}/CMake/GenerateMappings.cmake" mappings.h.in mappings.h
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -157,7 +171,7 @@ set_target_properties(glfw PROPERTIES
                       VERSION ${GLFW_VERSION_MAJOR}.${GLFW_VERSION_MINOR}
                       SOVERSION ${GLFW_VERSION_MAJOR}
                       POSITION_INDEPENDENT_CODE ON
-                      C_STANDARD 99
+                      C_STANDARD 23
                       C_EXTENSIONS OFF
                       DEFINE_SYMBOL _GLFW_BUILD_DLL
                       FOLDER "GLFW3")
