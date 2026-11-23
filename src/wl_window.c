@@ -60,6 +60,9 @@
 #ifdef  GLFW_ENABLE_TEXT_INPUT_V3
 	#include"text-input-unstable-v3-client-protocol.h"
 #endif
+#ifdef  GLFW_ENABLE_TEXT_INPUT_V1
+	#include"text-input-unstable-v1-client-protocol.h"
+#endif
 #include"xdg-activation-v1-client-protocol.h"
 #include"idle-inhibit-unstable-v1-client-protocol.h"
 #include"fractional-scale-v1-client-protocol.h"
@@ -276,20 +279,84 @@ static void applyToplevelIconWayland(_GLFWwindow* window){
 }
 #endif
 
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)||defined(GLFW_ENABLE_TEXT_INPUT_V1)
+//True while the IME owns an uncommitted preedit,v1 and v3 share this state.
+static inline GLFWbool l_text_input_is_composing(_GLFWwindow* window){
+	if(window->wl.textInputIsPrediting)
+		return GLFW_TRUE;
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+	//v3 only reports the preedit at done time.
+	if(window->wl.textInputIsPreditPending)
+		return GLFW_TRUE;
+#endif
+	return GLFW_FALSE;
+}
+
+/*
+Hand a UTF8 commit string to the app as character events.
+requireFocus is set for normal commits and cleared for the v1 reset text,
+which is meant to replace the preedit even though the surface lost focus.
+*/
+static void l_text_input_deliver_commited(_GLFWwindow *window,const char *text,GLFWbool requireFocus){
+	const int mods=_glfw.wl.xkb.modifiers;
+	const GLFWbool plain=!(mods&(GLFW_MOD_CONTROL|GLFW_MOD_ALT));
+	//Remember the focus once,a character callback may pump events and destroy
+	//the window,destroying it clears the focus.
+	const _GLFWwindow* focus=requireFocus?window:_glfw.wl.keyboardFocus;
+
+	//Ignore NULL.
+	if(!text)
+		return;
+	char *current=(char*)text;
+
+	while(*current&&_glfw.wl.keyboardFocus==focus){
+		const uint32_t codepoint=_glfwDecodeUTF8(&current);
+		_glfwInputChar(window,codepoint,mods,plain);
+	}
+}
+#endif
+
+#ifdef GLFW_ENABLE_TEXT_INPUT_V1
+//v1 has no enable request, activation follows the keyboard focus.
+static void l_text_input_v1_activate(_GLFWwindow *window){
+	if(!window->wl.textInputV1||!_glfw.wl.seat)
+		return;
+
+	zwp_text_input_v1_activate(window->wl.textInputV1,_glfw.wl.seat,window->wl.surface);
+	//Do not request the input panel:GLFW activates IME for the whole window,
+	//and compositors would pop the on-screen keyboard for a plain game window.
+	zwp_text_input_v1_set_content_type(window->wl.textInputV1,
+		ZWP_TEXT_INPUT_V1_CONTENT_HINT_NONE,
+		ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_NORMAL);
+	//there is no caret API for the app,anchor the candidate window to the bottom left:
+	zwp_text_input_v1_set_cursor_rectangle(window->wl.textInputV1,0,window->wl.height,0,0);
+
+	//Publish the state,compositors use this serial to talk to the input method.
+	zwp_text_input_v1_commit_state(window->wl.textInputV1,++window->wl.textInputV1Serial);
+}
+
+static void l_text_input_v1_deactivate(_GLFWwindow *window){
+	if(!window->wl.textInputV1||!_glfw.wl.seat)
+		return;
+	zwp_text_input_v1_deactivate(window->wl.textInputV1,_glfw.wl.seat);
+}
+#endif
+
 #ifdef GLFW_ENABLE_TEXT_INPUT_V3
 /*
 Event Enter will be boardcast to every handle,
 so check flag first, if not match just ignore it.
 */
-static void textInputHandleEnter(void *userData,struct zwp_text_input_v3 *textInput,struct wl_surface *surface){
+static void textInputV3HandleEnter
+(void *userData,struct zwp_text_input_v3 *textInput,struct wl_surface *surface){
 	_GLFWwindow* window=userData;
 	if(surface!=window->wl.surface)
 		return;
 	//It only have effect when user typing,clean it by default.
 	window->wl.textInputIsPrediting=GLFW_FALSE;
 	window->wl.textInputIsPreditPending=GLFW_FALSE;
-	_glfw_free(window->wl.textInputPendingCommit);
-	window->wl.textInputPendingCommit=NULL;
+	_glfw_free(window->wl.textInputCommited);
+	window->wl.textInputCommited=NULL;
 
 	zwp_text_input_v3_enable(textInput);
 	zwp_text_input_v3_set_content_type(textInput,
@@ -300,7 +367,7 @@ static void textInputHandleEnter(void *userData,struct zwp_text_input_v3 *textIn
 	zwp_text_input_v3_commit(textInput);
 }
 
-static void textInputHandleLeave
+static void textInputV3HandleLeave
 (void *userData,struct zwp_text_input_v3 *textInput,struct wl_surface *surface){
 	_GLFWwindow* window=userData;
 	if(surface!=window->wl.surface)
@@ -309,14 +376,14 @@ static void textInputHandleLeave
 	window->wl.textInputIsPrediting=GLFW_FALSE;
 	window->wl.textInputIsPreditPending=GLFW_FALSE;
 
-	_glfw_free(window->wl.textInputPendingCommit);
-	window->wl.textInputPendingCommit=NULL;
+	_glfw_free(window->wl.textInputCommited);
+	window->wl.textInputCommited=NULL;
 
 	zwp_text_input_v3_disable(textInput);
 	zwp_text_input_v3_commit(textInput);
 }
 
-static void textInputHandlePreeditString
+static void textInputV3HandlePreeditString
 (void *userData,struct zwp_text_input_v3 *textInput,const char *text,int32_t cursorBegin,int32_t cursorEnd){
 	_GLFWwindow *window=userData;
 
@@ -325,70 +392,56 @@ static void textInputHandlePreeditString
 }
 
 //Copy commited string to local wl res.
-static void textInputHandleCommitString(void *userData,struct zwp_text_input_v3 *textInput,const char *text){
+static void textInputV3HandleCommitString(void *userData,struct zwp_text_input_v3 *textInput,const char *text){
 	_GLFWwindow *window=userData;
-	char* copy;
 
-	if(text&&*text){
-		copy=_glfw_strdup(text);
-		if(!copy)
-			return;
-	}
+	if(!text||!*text)
+		return;
 
-	_glfw_free(window->wl.textInputPendingCommit);
-	window->wl.textInputPendingCommit=copy;
+	char* copy=_glfw_strdup(text);
+	if(!copy)
+		return;
+
+	_glfw_free(window->wl.textInputCommited);
+	window->wl.textInputCommited=copy;
 }
 
-static void textInputHandleDeleteSurroundingText
+static void textInputV3HandleDeleteSurroundingText
 (void *userData,struct zwp_text_input_v3 *textInput,uint32_t beforeLength,uint32_t afterLength){
 	//no surrounding text is ever sent,so there is nothing to delete
 }
 
-static void textInputHandleDone(void *userData,struct zwp_text_input_v3 *textInput,uint32_t serial){
+static void textInputV3HandleDone(void *userData,struct zwp_text_input_v3 *textInput,uint32_t serial){
 	_GLFWwindow *window=userData;
 	//Detach the buffer first,character callbacks may pump events again:
-	ACF(_glfw_auto_free) char* text=window->wl.textInputPendingCommit;
-	window->wl.textInputPendingCommit=NULL;
+	ACF(_glfw_auto_free) char* text=window->wl.textInputCommited;
+	window->wl.textInputCommited=NULL;
 
-	//There have no text,ignore this time.
-	if(!text||!*text)
-		return;
-	const int mods=_glfw.wl.xkb.modifiers;
-	//If there have modifier key pressed,set it to false.
-	const GLFWbool plain=!(mods&(GLFW_MOD_CONTROL|GLFW_MOD_ALT));
-
-	//the composition ends with this batch,do not touch window after the callbacks
+	//Apply the composing state even without text,an empty batch ends the preedit.
 	window->wl.textInputIsPrediting=window->wl.textInputIsPreditPending;
 	window->wl.textInputIsPreditPending=GLFW_FALSE;
 
-	const char *current=text;
 	//Decode committed text(UTF8), and then pass it to the app.
-	//Becase GLFW not implement window's life manager,so stop commit window is not focus or destroy.
-	while(*current&&_glfw.wl.keyboardFocus==window){
-		const uint32_t codepoint=_glfwDecodeUTF8(&current);
-		_glfwInputChar(window,codepoint,mods,plain);
-	}
+	l_text_input_deliver_commited(window,text,GLFW_TRUE);
 }
 
-static const struct zwp_text_input_v3_listener textInputListener={
-	textInputHandleEnter,
-	textInputHandleLeave,
-	textInputHandlePreeditString,
-	textInputHandleCommitString,
-	textInputHandleDeleteSurroundingText,
-	textInputHandleDone
+static const struct zwp_text_input_v3_listener textInputV3Listener={
+	textInputV3HandleEnter,
+	textInputV3HandleLeave,
+	textInputV3HandlePreeditString,
+	textInputV3HandleCommitString,
+	textInputV3HandleDeleteSurroundingText,
+	textInputV3HandleDone
 };
 
 #endif//GLFW_ENABLE_TEXT_INPUT_V3
 
-static void callbackHandleDone(void* userData, struct wl_callback* callback, uint32_t data)
-{
-    wl_callback_destroy(callback);
+static void callbackHandleDone(void* userData, struct wl_callback* callback, uint32_t data){
+	wl_callback_destroy(callback);
 }
 
-static const struct wl_callback_listener noopCallbackListener =
-{
-    callbackHandleDone
+static const struct wl_callback_listener noopCallbackListener ={
+	callbackHandleDone
 };
 
 static void createFallbackEdge(_GLFWwindow* window,
@@ -1649,10 +1702,9 @@ static void handleEvents(double* timeout)
                 {
                     for (uint64_t i = 0; i < repeats; i++)
                     {
-#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)||defined(GLFW_ENABLE_TEXT_INPUT_V1)
 						//Ignore input event,when IME handling input event.
-						if (_glfw.wl.keyboardFocus->wl.textInputIsPrediting||
-								_glfw.wl.keyboardFocus->wl.textInputIsPreditPending){
+						if (l_text_input_is_composing(_glfw.wl.keyboardFocus)){
 							continue;
 						}
 #endif
@@ -2135,6 +2187,12 @@ static void keyboardHandleEnter(void* userData,
 
     _glfw.wl.serial = serial;
     _glfw.wl.keyboardFocus = window;
+
+#ifdef GLFW_ENABLE_TEXT_INPUT_V1
+	//v1 is activated by the client,not by the compositor.
+	l_text_input_v1_activate(window);
+#endif
+
     _glfwInputWindowFocus(window, GLFW_TRUE);
 }
 
@@ -2154,10 +2212,16 @@ static void keyboardHandleLeave(void* userData,
     _glfw.wl.serial = serial;
     _glfw.wl.keyboardFocus = NULL;
 
-#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)||defined(GLFW_ENABLE_TEXT_INPUT_V1)
 	//the text input leave event should do this too,never keep keys stuck here
 	window->wl.textInputIsPrediting=GLFW_FALSE;
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
 	window->wl.textInputIsPreditPending=GLFW_FALSE;
+#endif
+#endif
+
+#ifdef GLFW_ENABLE_TEXT_INPUT_V1
+	l_text_input_v1_deactivate(window);
 #endif
 
     _glfwInputWindowFocus(window, GLFW_FALSE);
@@ -2180,9 +2244,9 @@ static void keyboardHandleKey(void* userData,
 
     _glfw.wl.serial = serial;
 
-#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)||defined(GLFW_ENABLE_TEXT_INPUT_V1)
 	//If IMW handling input event,ignore input event in GLFW
-	if(action==GLFW_PRESS&&(window->wl.textInputIsPrediting||window->wl.textInputIsPreditPending)){
+	if(action==GLFW_PRESS&&l_text_input_is_composing(window)){
 		return;
 	}
 #endif
@@ -2214,9 +2278,170 @@ static void keyboardHandleKey(void* userData,
 
     _glfwInputKey(window, key, scancode, action, _glfw.wl.xkb.modifiers);
 
-    if (action == GLFW_PRESS)
+    if (action == GLFW_PRESS && _glfw.wl.keyboardFocus == window)
         inputText(window, scancode);
 }
+
+#ifdef GLFW_ENABLE_TEXT_INPUT_V1
+static void l_text_input_v1_handle_enter(void *userData,struct zwp_text_input_v1 *textInput,struct wl_surface *surface){
+	_GLFWwindow* window=userData;
+
+	//enter only acknowledges activate,the keyboard focus already did it.
+	if(surface!=window->wl.surface)
+		return;
+
+	//Do not carry a stale reset text over from a previous session.
+	window->wl.textInputIsPrediting=GLFW_FALSE;
+	_glfw_free(window->wl.textInputCommited);
+	window->wl.textInputCommited=NULL;
+}
+
+static void l_text_input_v1_handle_leave(void *userData,struct zwp_text_input_v1 *textInput){
+	_GLFWwindow* window=userData;
+
+	//The compositor already deactivated, just drop the composing state.
+	window->wl.textInputIsPrediting=GLFW_FALSE;
+
+	//v1 may ask to replace the cancelled preedit with this text.
+	//It arrives after the keyboard may have moved on,so do not require focus.
+	ACF(_glfw_auto_free) char* commit=window->wl.textInputCommited;
+	window->wl.textInputCommited=NULL;
+	l_text_input_deliver_commited(window,commit,GLFW_FALSE);
+}
+
+static void l_text_input_v1_handle_modifiers_map
+(void* userData,struct zwp_text_input_v1* textInput,struct wl_array* map){
+}
+
+static void l_text_input_v1_handle_input_panel_state(void *userData,struct zwp_text_input_v1 *textInput,uint32_t state){
+}
+
+static void l_text_input_v1_handle_preedit_string
+(void *userData,struct zwp_text_input_v1 *textInput,uint32_t serial,const char *text,const char *commit){
+	_GLFWwindow* window=userData;
+
+	//V1 is not double buffered, so if there no string exist that's mean its not preediting.
+	window->wl.textInputIsPrediting=(text&&*text)?GLFW_TRUE:GLFW_FALSE;
+
+	//The preedit is not rendered, so we don't care about text, we just cache the commited string.
+	_glfw_free(window->wl.textInputCommited);
+	window->wl.textInputCommited=NULL;
+	if(commit&&*commit){
+		char* copy=_glfw_strdup(commit);
+		if(copy)
+			window->wl.textInputCommited=copy;
+	}
+
+}
+
+static void l_text_input_v1_handle_preedit_styling
+(void* userData,struct zwp_text_input_v1* textInput,uint32_t index,uint32_t length,uint32_t style){
+	//The preedit is not rendered,style runs are irrelevant, so ignore it.
+}
+
+static void l_text_input_v1_handle_preedit_cursor
+(void* userData,struct zwp_text_input_v1* textInput,int32_t index){
+	//The preedit is not rendered,there is no caret to place, so just ignore it.
+}
+
+static void l_text_input_v1_handle_commit_string
+(void* userData,struct zwp_text_input_v1* textInput,uint32_t serial,const char* text){
+	_GLFWwindow* window=userData;
+
+	window->wl.textInputIsPrediting=GLFW_FALSE;
+
+	//Whaterver clean cached strings.
+	_glfw_free(window->wl.textInputCommited);
+	window->wl.textInputCommited=NULL;
+
+	if(!text||!*text)
+		return;
+
+	//v1 is not double buffered,hand the commit over in this event.
+	char* copy=_glfw_strdup(text);
+	if(!copy)
+		return;
+
+	window->wl.textInputCommited=copy;
+
+	ACF(_glfw_auto_free) char* committed=window->wl.textInputCommited;
+	window->wl.textInputCommited=NULL;
+	l_text_input_deliver_commited(window,committed,GLFW_TRUE);
+}
+
+static void l_text_input_v1_handle_cursor_position
+(void *userData,struct zwp_text_input_v1 *textInput,int32_t index,int32_t anchor){
+	//No surrounding text is ever sent.
+}
+
+static void l_text_input_v1_handle_delete_surrounding_text
+(void *userData,struct zwp_text_input_v1 *textInput,int32_t index,uint32_t length){
+	//No surrounding text is ever sent,so there is nothing to delete.
+}
+
+static void l_text_input_v1_handle_keysym
+(void *userData,struct zwp_text_input_v1 *textInput,uint32_t serial,uint32_t time,uint32_t sym,uint32_t state,uint32_t modifiers){
+	uint32_t scancode;
+
+	//Only weston-keyboard is known to send these.
+	switch(sym){
+		case XKB_KEY_Left:
+			scancode=KEY_LEFT;
+			break;
+		case XKB_KEY_Right:
+			scancode=KEY_RIGHT;
+			break;
+		case XKB_KEY_Up:
+			scancode=KEY_UP;
+			break;
+		case XKB_KEY_Down:
+			scancode=KEY_DOWN;
+			break;
+		case XKB_KEY_BackSpace:
+			scancode=KEY_BACKSPACE;
+			break;
+		case XKB_KEY_Tab:
+			scancode=KEY_TAB;
+			break;
+		case XKB_KEY_KP_Enter:
+			scancode=KEY_KPENTER;
+			break;
+		case XKB_KEY_Return:
+			scancode=KEY_ENTER;
+			break;
+		default:
+			return;
+	}
+
+	//The IME serial is not a wl_display serial and its modifier mask is
+	//private to the IME,keep the current display state untouched.
+	keyboardHandleKey(userData,_glfw.wl.keyboard,_glfw.wl.serial,time,scancode,state);
+}
+
+static void l_text_input_v1_handle_language
+(void *userData,struct zwp_text_input_v1 *textInput,uint32_t serial,const char* language){
+}
+
+static void l_text_input_v1_handle_text_direction
+(void *userData,struct zwp_text_input_v1 *textInput,uint32_t serial,uint32_t direction){
+}
+
+static const struct zwp_text_input_v1_listener textInputV1Listener={
+	l_text_input_v1_handle_enter,
+	l_text_input_v1_handle_leave,
+	l_text_input_v1_handle_modifiers_map,
+	l_text_input_v1_handle_input_panel_state,
+	l_text_input_v1_handle_preedit_string,
+	l_text_input_v1_handle_preedit_styling,
+	l_text_input_v1_handle_preedit_cursor,
+	l_text_input_v1_handle_commit_string,
+	l_text_input_v1_handle_cursor_position,
+	l_text_input_v1_handle_delete_surrounding_text,
+	l_text_input_v1_handle_keysym,
+	l_text_input_v1_handle_language,
+	l_text_input_v1_handle_text_direction
+};
+#endif//GLFW_ENABLE_TEXT_INPUT_V1
 
 static void keyboardHandleModifiers(void* userData,
                                     struct wl_keyboard* keyboard,
@@ -2669,14 +2894,27 @@ GLFWbool _glfwCreateWindowWayland(_GLFWwindow* window,
             return GLFW_FALSE;
     }
 
-#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
-	//Setup V3 support when creating window.
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
     if(_glfw.wl.textInputManager&&_glfw.wl.seat){
-        window->wl.textInput=zwp_text_input_manager_v3_get_text_input(_glfw.wl.textInputManager,_glfw.wl.seat);
-        if (window->wl.textInput){
-            zwp_text_input_v3_add_listener(window->wl.textInput,&textInputListener, window);
+        window->wl.textInputV3=zwp_text_input_manager_v3_get_text_input(_glfw.wl.textInputManager,_glfw.wl.seat);
+        if (window->wl.textInputV3){
+            zwp_text_input_v3_add_listener(window->wl.textInputV3,&textInputV3Listener, window);
         }
     }
+#endif
+#ifdef GLFW_ENABLE_TEXT_INPUT_V1
+	if(_glfw.wl.textInputManagerV1&&_glfw.wl.seat
+	//If input V3 is avalible, abandon create V1 lister for new window.
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+		&&!window->wl.textInputV3
+#endif
+		){
+		window->wl.textInputV1=
+			zwp_text_input_manager_v1_create_text_input(_glfw.wl.textInputManagerV1);
+		if(window->wl.textInputV1)
+			zwp_text_input_v1_add_listener(window->wl.textInputV1,
+				&textInputV1Listener,window);
+	}
 #endif
 
     return GLFW_TRUE;
@@ -2702,13 +2940,19 @@ void _glfwDestroyWindowWayland(_GLFWwindow* window)
 	destroyToplevelIconWayland(window);
 #endif
 
-#if defined(GLFW_ENABLE_TEXT_INPUT_V3)
-	//Destory V3 resouce and local cache.
-	if(window->wl.textInput)
-	    zwp_text_input_v3_destroy(window->wl.textInput);
+#if defined(GLFW_ENABLE_TEXT_INPUT_V3)||defined(GLFW_ENABLE_TEXT_INPUT_V1)
+	//Destroy text input resources and local caches.
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+	if(window->wl.textInputV3)
+	    zwp_text_input_v3_destroy(window->wl.textInputV3);
+#endif
+#ifdef GLFW_ENABLE_TEXT_INPUT_V1
+	if(window->wl.textInputV1)
+		zwp_text_input_v1_destroy(window->wl.textInputV1);
+#endif
 
-	_glfw_free(window->wl.textInputPendingCommit);
-	window->wl.textInputPendingCommit = NULL;
+	_glfw_free(window->wl.textInputCommited);
+	window->wl.textInputCommited = NULL;
 #endif
 
     if (window->wl.scalingViewport)
@@ -2764,78 +3008,62 @@ void _glfwSetWindowTitleWayland(_GLFWwindow* window, const char* title)
         xdg_toplevel_set_title(window->wl.xdg.toplevel, title);
 }
 
-void _glfwSetWindowIconWayland(_GLFWwindow* window,
-                               int count, const GLFWimage* images)
-{
+void _glfwSetWindowIconWayland(_GLFWwindow *window,int count,const GLFWimage *images){
 #if defined(GLFW_ENABLE_TOPLEVEL_ICON)
-    struct xdg_toplevel* toplevel;
+	struct xdg_toplevel* toplevel;
 
-    if (!_glfw.wl.toplevelIconManager)
-    {
-        fprintf(stderr,
-                "[GLFW] Wayland: The platform does not support setting the window icon\n");
-        return;
-    }
+	if(!_glfw.wl.toplevelIconManager){
+		fprintf(stderr,"[GLFW] Wayland: The platform does not support setting the window icon\n");
+		return;
+	}
 
-    toplevel = getToplevelWayland(window);
+	//There have no resource,just igonre this request.
+	if(!count)
+		return;
 
-    //an empty icon resets the toplevel to its default icon
-    if (!count)
-    {
-        if (toplevel)
-            xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.toplevelIconManager,toplevel, NULL);
+	toplevel=getToplevelWayland(window);
+	_GLFWtoplevelIconWayland *icon=_glfw_calloc(1, sizeof(_GLFWtoplevelIconWayland));
+	if(!icon)
+		return;
 
-        destroyToplevelIconWayland(window);
-        return;
-    }
+	icon->icon=xdg_toplevel_icon_manager_v1_create_icon(_glfw.wl.toplevelIconManager);
+	icon->buffers=_glfw_calloc(count,sizeof(struct wl_buffer*));
+	if(!icon->icon||!icon->buffers){
+		if(icon->icon)
+			xdg_toplevel_icon_v1_destroy(icon->icon);
 
-    _GLFWtoplevelIconWayland* icon =
-        _glfw_calloc(1, sizeof(_GLFWtoplevelIconWayland));
-    if (!icon)
-        return;
+		_glfw_free(icon->buffers);
+		_glfw_free(icon);
+		return;
+	}
 
-    icon->icon = xdg_toplevel_icon_manager_v1_create_icon(_glfw.wl.toplevelIconManager);
-    icon->buffers = _glfw_calloc((size_t) count, sizeof(struct wl_buffer*));
-    if (!icon->icon || !icon->buffers)
-    {
-        if (icon->icon)
-            xdg_toplevel_icon_v1_destroy(icon->icon);
+	for(size_t i=0;i<count;i++){
+		struct wl_buffer *buffer=createIconShmBuffer(&images[i]);
+		//Ignore?
+		if(!buffer)
+			continue;
 
-        _glfw_free(icon->buffers);
-        _glfw_free(icon);
-        return;
-    }
+		//the image is in device pixels,convert it to surface-local pixels
+		xdg_toplevel_icon_v1_add_buffer(icon->icon,buffer,window->wl.bufferScale);
+		icon->buffers[icon->bufferCount++]=buffer;
+	}
 
-    for (int i = 0;  i < count;  i++)
-    {
-        struct wl_buffer* buffer = createIconShmBuffer(&images[i]);
-        if (!buffer)
-            continue;
+	if(!icon->bufferCount){
+		xdg_toplevel_icon_v1_destroy(icon->icon);
+		_glfw_free(icon->buffers);
+		_glfw_free(icon);
+		return;
+	}
 
-        //the image is in device pixels,convert it to surface-local pixels
-        xdg_toplevel_icon_v1_add_buffer(icon->icon, buffer, window->wl.bufferScale);
-        icon->buffers[icon->bufferCount++] = buffer;
-    }
+	//the state is double buffered and applied on the next surface commit
+	//without a toplevel yet,the icon is applied once the shell objects exist
+	if(toplevel){
+		xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.toplevelIconManager,toplevel,icon->icon);
+	}
 
-    if (!icon->bufferCount)
-    {
-        xdg_toplevel_icon_v1_destroy(icon->icon);
-        _glfw_free(icon->buffers);
-        _glfw_free(icon);
-        return;
-    }
-
-    //the state is double buffered and applied on the next surface commit
-    //without a toplevel yet,the icon is applied once the shell objects exist
-    if (toplevel)
-    {
-        xdg_toplevel_icon_manager_v1_set_icon(_glfw.wl.toplevelIconManager,
-                                              toplevel, icon->icon);
-    }
-
-    //the toplevel keeps the old icon until the new one is applied
-    destroyToplevelIconWayland(window);
-    window->wl.icon = icon;
+	//Free previous icon.
+	destroyToplevelIconWayland(window);
+	window->wl.icon=icon;
 #else
     fprintf(stderr,
             "[GLFW] Wayland: The platform does not support setting the window icon\n");

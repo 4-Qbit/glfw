@@ -177,7 +177,7 @@ size_t _glfwEncodeUTF8(char* s, uint32_t codepoint)
 
 //Decode a Unicode code point from a UTF-8 stream
 //Based on cutef8 by Jeff Bezanson (Public Domain)
-uint32_t _glfwDecodeUTF8(const char** s){
+uint32_t _glfwDecodeUTF8(char** s){
 	uint32_t codepoint=0;
 	int count=-1;
 	static const uint32_t offsets[]={

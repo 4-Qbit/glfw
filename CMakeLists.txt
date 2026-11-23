@@ -42,14 +42,17 @@ if (NOT GLFW_UNLOCK_CUR_METHOD STREQUAL "1" AND
     message(FATAL_ERROR "GLFW_UNLOCK_CUR_METHOD must be 1 or 2")
 endif()
 
-#Enable wp_pointer_warp_v1
+#Wp_pointer_warp_v1 support.
 option(GLFW_ENABLE_POINTER_WARP "Enable wp_pointer_warp_v1 pointer warping" OFF)
 
 #Xdg_toplevel_icon_v1 support.
 option(GLFW_ENABLE_TOPLEVEL_ICON "Enable xdg_toplevel_icon_v1 window icons" OFF)
 
+#Zwp_text_input_v1 support,please noice that, it has been removed since kwin 6.6.90.
+option(GLFW_ENABLE_TEXT_INPUT_V1 "Enable zwp_text_input_v1 text input" OFF)
+
 #Zwp_text_input_v3 support.
-option(GLFW_ENABLE_TEXT_INPUT_V3 "Enable zwp_text_input_v3 text input (IME)" OFF)
+option(GLFW_ENABLE_TEXT_INPUT_V3 "Enable zwp_text_input_v3 text input" OFF)
 
 set(GLFW_LIBRARY_TYPE "${GLFW_LIBRARY_TYPE}" CACHE STRING
     "Library type override for GLFW (SHARED, STATIC, OBJECT, or empty to follow BUILD_SHARED_LIBS)")

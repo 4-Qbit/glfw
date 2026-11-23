@@ -55,6 +55,9 @@
 #if defined(GLFW_ENABLE_TEXT_INPUT_V3)
 	#include "text-input-unstable-v3-client-protocol.h"
 #endif
+#if defined(GLFW_ENABLE_TEXT_INPUT_V1)
+	#include "text-input-unstable-v1-client-protocol.h"
+#endif
 #include "fractional-scale-v1-client-protocol.h"
 #include "xdg-activation-v1-client-protocol.h"
 #include "idle-inhibit-unstable-v1-client-protocol.h"
@@ -103,6 +106,11 @@
 #if defined(GLFW_ENABLE_TEXT_INPUT_V3)
 	#define types _glfw_text_input_v3_types
 	#include "text-input-unstable-v3-client-protocol-code.h"
+	#undef types
+#endif
+#if defined(GLFW_ENABLE_TEXT_INPUT_V1)
+	#define types _glfw_text_input_v1_types
+	#include "text-input-unstable-v1-client-protocol-code.h"
 	#undef types
 #endif
 
@@ -278,6 +286,12 @@ static void registryHandleGlobal(void* userData,
 #if defined(GLFW_ENABLE_TEXT_INPUT_V3)
 	else if (!strcmp(interface,"zwp_text_input_manager_v3")){
 		_glfw.wl.textInputManager=wl_registry_bind(registry,name,&zwp_text_input_manager_v3_interface,1);
+	}
+#endif
+//Add support for text input v1,it is a fallback for compositors without v3
+#if defined(GLFW_ENABLE_TEXT_INPUT_V1)
+	else if (!strcmp(interface,"zwp_text_input_manager_v1")){
+		_glfw.wl.textInputManagerV1=wl_registry_bind(registry,name,&zwp_text_input_manager_v1_interface,1);
 	}
 #endif
 }
@@ -1078,6 +1092,10 @@ void _glfwTerminateWayland(void)
 #if defined(GLFW_ENABLE_TEXT_INPUT_V3)
 	if(_glfw.wl.textInputManager)
 		zwp_text_input_manager_v3_destroy(_glfw.wl.textInputManager);
+#endif
+#if defined(GLFW_ENABLE_TEXT_INPUT_V1)
+	if(_glfw.wl.textInputManagerV1)
+		zwp_text_input_manager_v1_destroy(_glfw.wl.textInputManagerV1);
 #endif
     if (_glfw.wl.registry)
         wl_registry_destroy(_glfw.wl.registry);

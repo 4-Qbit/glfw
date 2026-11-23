@@ -57,12 +57,19 @@ if (GLFW_BUILD_WAYLAND)
     if (GLFW_ENABLE_POINTER_WARP)
         target_compile_definitions(glfw PRIVATE GLFW_ENABLE_POINTER_WARP)
     endif()
+
     if (GLFW_ENABLE_TOPLEVEL_ICON)
         target_compile_definitions(glfw PRIVATE GLFW_ENABLE_TOPLEVEL_ICON)
     endif()
+
+    if (GLFW_ENABLE_TEXT_INPUT_V1)
+        target_compile_definitions(glfw PRIVATE GLFW_ENABLE_TEXT_INPUT_V1)
+    endif()
+
     if (GLFW_ENABLE_TEXT_INPUT_V3)
         target_compile_definitions(glfw PRIVATE GLFW_ENABLE_TEXT_INPUT_V3)
     endif()
+
     target_sources(glfw PRIVATE wl_platform.h wl_init.c
                                 wl_monitor.c wl_window.c)
 endif()
@@ -118,9 +125,15 @@ if (GLFW_BUILD_WAYLAND)
     if (GLFW_ENABLE_POINTER_WARP)
         generate_wayland_protocol("pointer-warp-v1.xml")
     endif()
+
     if (GLFW_ENABLE_TOPLEVEL_ICON)
         generate_wayland_protocol("xdg-toplevel-icon-v1.xml")
     endif()
+
+    if (GLFW_ENABLE_TEXT_INPUT_V1)
+        generate_wayland_protocol("text-input-unstable-v1.xml")
+    endif()
+
     if (GLFW_ENABLE_TEXT_INPUT_V3)
         generate_wayland_protocol("text-input-unstable-v3.xml")
     endif()
