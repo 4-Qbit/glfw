@@ -60,8 +60,20 @@ option(GLFW_ENABLE_TEXT_INPUT_V3 "Enable zwp_text_input_v3 text input" OFF)
 #Fake preedit for applications without a preedit layer.
 option(GLFW_ENABLE_FAKE_PREEDIT "Inject the IME preedit into the app as typed text" OFF)
 
+#MC style: leave the IME when the cursor is locked for gameplay.
+option(GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED
+       "Leave text input when the cursor is locked" OFF)
+
 if (GLFW_ENABLE_FAKE_PREEDIT AND NOT GLFW_BUILD_WAYLAND)
     message(FATAL_ERROR "GLFW_ENABLE_FAKE_PREEDIT requires GLFW_BUILD_WAYLAND")
+endif()
+
+if (GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED AND NOT GLFW_BUILD_WAYLAND)
+    message(FATAL_ERROR "GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED requires GLFW_BUILD_WAYLAND")
+endif()
+
+if (GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED AND NOT (GLFW_ENABLE_TEXT_INPUT_V1 OR GLFW_ENABLE_TEXT_INPUT_V3))
+    message(FATAL_ERROR "GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED requires GLFW_ENABLE_TEXT_INPUT_V1 or GLFW_ENABLE_TEXT_INPUT_V3")
 endif()
 
 set(GLFW_LIBRARY_TYPE "${GLFW_LIBRARY_TYPE}" CACHE STRING

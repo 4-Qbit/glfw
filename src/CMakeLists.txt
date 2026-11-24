@@ -84,6 +84,10 @@ if (GLFW_BUILD_WAYLAND)
         target_compile_definitions(glfw PRIVATE GLFW_ENABLE_TEXT_INPUT_V3)
     endif()
 
+    if (GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED)
+        target_compile_definitions(glfw PRIVATE GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED)
+    endif()
+
     if (GLFW_ENABLE_FAKE_PREEDIT)
         if (NOT GLFW_ENABLE_TEXT_INPUT_V1 AND NOT GLFW_ENABLE_TEXT_INPUT_V3)
             message(FATAL_ERROR "GLFW_ENABLE_FAKE_PREEDIT requires text input support")

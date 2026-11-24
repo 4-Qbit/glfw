@@ -460,6 +460,10 @@ typedef struct _GLFWwindowWayland
 	bool textInputIsPrediting;
 	//True while the compositor has the input enabled(v3) or activated(v1).
 	bool textInputIsEnabled;
+#ifdef GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED
+	//True while the cursor is locked and text input was left for gameplay.
+	bool textInputIsCursorLocked;
+#endif
 #ifdef GLFW_ENABLE_FAKE_PREEDIT
 	//Byte cursor offset (cursor_end) reported by the IME for the next preedit.
 	s16 textInputFakeCursor;

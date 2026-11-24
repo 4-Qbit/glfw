@@ -344,6 +344,10 @@ static void l_text_input_deliver_commited(_GLFWwindow *window,const char *text,G
 	#error "GLFW_ENABLE_FAKE_PREEDIT requires GLFW_ENABLE_TEXT_INPUT_V1 or V3"
 #endif
 
+#if defined(GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED) && !defined(GLFW_ENABLE_TEXT_INPUT_V3) && !defined(GLFW_ENABLE_TEXT_INPUT_V1)
+	#error "GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED requires GLFW_ENABLE_TEXT_INPUT_V1 or V3"
+#endif
+
 #ifdef GLFW_ENABLE_FAKE_PREEDIT
 /*
 The IME owns the keyboard while composing,so the application never sees the
@@ -560,6 +564,10 @@ static void l_fake_update(_GLFWwindow* window,const char* text,s32 cursorByte){
 static void l_text_input_v1_activate(_GLFWwindow *window){
 	if(!window->wl.textInputV1||!_glfw.wl.seat)
 		return;
+#ifdef GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED
+	if(window->wl.textInputIsCursorLocked)
+		return;
+#endif
 
 	zwp_text_input_v1_activate(window->wl.textInputV1,_glfw.wl.seat,window->wl.surface);
 	//Do not request the input panel:GLFW activates IME for the whole window,
@@ -582,6 +590,62 @@ static void l_text_input_v1_deactivate(_GLFWwindow *window){
 }
 #endif
 
+#ifdef GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED
+/*
+The cursor is locked for gameplay,so stop the IME from owning the keyboard.
+The text field is usually already gone,so do not type Backspaces into the game.
+*/
+static void l_text_input_leave_for_cursor_lock(_GLFWwindow *window){
+	//Mark first so text input events already in flight are dropped.
+	window->wl.textInputIsCursorLocked=true;
+	window->wl.textInputIsPrediting=false;
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+	window->wl.textInputIsPreditPending=false;
+#endif
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	l_fake_reset(window);
+#endif
+	_glfw_free(window->wl.textInputCommited);
+	window->wl.textInputCommited=NULL;
+	window->wl.textInputIsEnabled=false;
+
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+	if(window->wl.textInputV3){
+		zwp_text_input_v3_disable(window->wl.textInputV3);
+		//v3 is double buffered,without this commit the disable never applies.
+		zwp_text_input_v3_commit(window->wl.textInputV3);
+	}
+#endif
+#ifdef GLFW_ENABLE_TEXT_INPUT_V1
+	l_text_input_v1_deactivate(window);
+#endif
+}
+
+//Restore text input when the cursor is unlocked and the window still has focus.
+static void l_text_input_restore_from_cursor_lock(_GLFWwindow* window){
+	if(!window->wl.textInputIsCursorLocked)
+		return;
+	window->wl.textInputIsCursorLocked=GLFW_FALSE;
+	if(_glfw.wl.keyboardFocus!=window)
+		return;
+
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+	if(window->wl.textInputV3){
+		zwp_text_input_v3_enable(window->wl.textInputV3);
+		zwp_text_input_v3_set_content_type(window->wl.textInputV3,
+			ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE,
+			ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL);
+		window->wl.textInputIsEnabled=true;
+		l_text_input_update_cursor_rect(window);
+		return;
+	}
+#endif
+#ifdef GLFW_ENABLE_TEXT_INPUT_V1
+	l_text_input_v1_activate(window);
+#endif
+}
+#endif
+
 #ifdef GLFW_ENABLE_TEXT_INPUT_V3
 /*
 Event Enter will be boardcast to every handle,
@@ -592,6 +656,10 @@ static void textInputV3HandleEnter
 	_GLFWwindow* window=userData;
 	if(surface!=window->wl.surface)
 		return;
+#ifdef GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED
+	if(window->wl.textInputIsCursorLocked)
+		return;
+#endif
 	//It only have effect when user typing,clean it by default.
 	window->wl.textInputIsPrediting=GLFW_FALSE;
 	window->wl.textInputIsPreditPending=GLFW_FALSE;
@@ -641,6 +709,14 @@ static void textInputV3HandlePreeditString
 (void *userData,struct zwp_text_input_v3 *textInput,const char *text,int32_t cursorBegin,int32_t cursorEnd){
 	_GLFWwindow *window=userData;
 
+#ifdef GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED
+	//Drop events already queued before the disable request.
+	if(window->wl.textInputIsCursorLocked){
+		window->wl.textInputIsPreditPending=false;
+		return;
+	}
+#endif
+
 #ifdef GLFW_ENABLE_FAKE_PREEDIT
 	//v3 is double buffered,stage the batch until done.
 	char* copy=NULL;
@@ -651,7 +727,7 @@ static void textInputV3HandlePreeditString
 			_glfw_free(window->wl.textInputFakepreedit);
 			window->wl.textInputFakepreedit=NULL;
 			window->wl.textInputFakeCursor=-1;
-			window->wl.textInputIsPreditPending=GLFW_FALSE;
+			window->wl.textInputIsPreditPending=false;
 			return;
 		}
 	}
@@ -669,6 +745,11 @@ static void textInputV3HandlePreeditString
 //Copy commited string to local wl res.
 static void textInputV3HandleCommitString(void *userData,struct zwp_text_input_v3 *textInput,const char *text){
 	_GLFWwindow *window=userData;
+
+#ifdef GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED
+	if(window->wl.textInputIsCursorLocked)
+		return;
+#endif
 
 	if(!text||!*text)
 		return;
@@ -2655,6 +2736,11 @@ static void l_text_input_v1_handle_preedit_string
 (void *userData,struct zwp_text_input_v1 *textInput,uint32_t serial,const char *text,const char *commit){
 	_GLFWwindow* window=userData;
 
+#ifdef GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED
+	if(window->wl.textInputIsCursorLocked)
+		return;
+#endif
+
 	//V1 is not double buffered, so if there no string exist that's mean its not preediting.
 	window->wl.textInputIsPrediting=(text&&*text)?GLFW_TRUE:GLFW_FALSE;
 
@@ -2693,6 +2779,11 @@ static void l_text_input_v1_handle_preedit_cursor
 static void l_text_input_v1_handle_commit_string
 (void* userData,struct zwp_text_input_v1* textInput,uint32_t serial,const char* text){
 	_GLFWwindow* window=userData;
+
+#ifdef GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED
+	if(window->wl.textInputIsCursorLocked)
+		return;
+#endif
 
 	window->wl.textInputIsPrediting=GLFW_FALSE;
 
@@ -3905,6 +3996,12 @@ void _glfwSetCursorPosWayland(_GLFWwindow* window, double x, double y)
 void _glfwSetCursorModeWayland(_GLFWwindow* window, int mode)
 {
     _glfwSetCursorWayland(window, window->cursor);
+#ifdef GLFW_MC_LEAVE_TEXT_INPUT_WHEN_CURSOR_IS_LOCKED
+    if(mode==GLFW_CURSOR_DISABLED)
+        l_text_input_leave_for_cursor_lock(window);
+    else
+        l_text_input_restore_from_cursor_lock(window);
+#endif
 }
 
 const char* _glfwGetScancodeNameWayland(int scancode)
