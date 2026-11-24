@@ -57,6 +57,13 @@ option(GLFW_ENABLE_TEXT_INPUT_V1 "Enable zwp_text_input_v1 text input" OFF)
 #Zwp_text_input_v3 support.
 option(GLFW_ENABLE_TEXT_INPUT_V3 "Enable zwp_text_input_v3 text input" OFF)
 
+#Fake preedit for applications without a preedit layer.
+option(GLFW_ENABLE_FAKE_PREEDIT "Inject the IME preedit into the app as typed text" OFF)
+
+if (GLFW_ENABLE_FAKE_PREEDIT AND NOT GLFW_BUILD_WAYLAND)
+    message(FATAL_ERROR "GLFW_ENABLE_FAKE_PREEDIT requires GLFW_BUILD_WAYLAND")
+endif()
+
 set(GLFW_LIBRARY_TYPE "${GLFW_LIBRARY_TYPE}" CACHE STRING
     "Library type override for GLFW (SHARED, STATIC, OBJECT, or empty to follow BUILD_SHARED_LIBS)")
 

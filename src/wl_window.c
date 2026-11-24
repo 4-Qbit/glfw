@@ -340,6 +340,193 @@ static void l_text_input_deliver_commited(_GLFWwindow *window,const char *text,G
 }
 #endif
 
+#if defined(GLFW_ENABLE_FAKE_PREEDIT) && !defined(GLFW_ENABLE_TEXT_INPUT_V3) && !defined(GLFW_ENABLE_TEXT_INPUT_V1)
+	#error "GLFW_ENABLE_FAKE_PREEDIT requires GLFW_ENABLE_TEXT_INPUT_V1 or V3"
+#endif
+
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+/*
+The IME owns the keyboard while composing,so the application never sees the
+preedit keys. Type the preedit into the application here and roll it back
+before every rewrite,so the text field shows what the IME is composing.
+*/
+static GLFWbool l_fake_key(_GLFWwindow* window,int key,uint32_t scancode){
+	if(_glfw.wl.keyboardFocus!=window)
+		return GLFW_FALSE;
+
+	//Synthetic keys bypass keyboardHandleKey,or the composing filter would
+	//drop them before the application sees them.
+	_glfwInputKey(window,key,scancode,GLFW_PRESS,0);
+	_glfwInputKey(window,key,scancode,GLFW_RELEASE,0);
+
+	return _glfw.wl.keyboardFocus==window;
+}
+
+//Decode the whole UTF8 string into a new codepoint array.
+static u32* l_fake_decode(const char *text,u32 *count){
+	ul length;
+	u32 *result;
+	char* current=(char*)text;
+
+	*count=0;
+	if(!text||!*text)
+		return NULL;
+
+	//One codepoint never needs more bytes than the string itself,plus the terminator.
+	length=strlen(text)+1;
+	result=_glfw_malloc((length)*sizeof(u32));
+	if(!result)
+		return NULL;
+
+	while(*current)
+		result[(*count)++]=_glfwDecodeUTF8(&current);
+
+	result[*count]=0;
+	return result;
+}
+
+//Byte offset inside the preedit to codepoint count.
+static u32 l_fake_byte_to_cp(const char* text,s32 byte){
+	u32 count=0;
+	char* current=(char*)text;
+
+	if(!text||byte<=0)
+		return 0;
+
+	while(*current&&(s32)(current-text)<byte){
+		_glfwDecodeUTF8(&current);
+		count++;
+	}
+	return count;
+}
+
+static bool l_fake_type(_GLFWwindow *window,const u32 *codepoints,u32 count){
+	for(u32 i=0;i<count;i++){
+		//Before implement window life manager:
+		if(_glfw.wl.keyboardFocus!=window)
+			return false;
+		_glfwInputChar(window,codepoints[i],0,true);
+	}
+	return _glfw.wl.keyboardFocus==window;
+}
+
+//Move the application caret to a codepoint index inside the fake preedit.
+static bool l_fake_move(_GLFWwindow *window,s32 pos){
+	s32 delta;
+	s32 current=(s32)window->wl.textInputFakeCount-window->wl.textInputFakeOffset;
+
+	//IME will wrap back, when user press left on the first word.
+	if(pos<0)
+		pos=0;
+
+	if(pos>(s32)window->wl.textInputFakeCount)
+		pos=(s32)window->wl.textInputFakeCount;
+
+	delta=pos-current;
+	while(delta>0){
+		if(!l_fake_key(window,GLFW_KEY_RIGHT,KEY_RIGHT))
+			return false;
+		delta--;
+	}
+	while(delta<0){
+		if(!l_fake_key(window,GLFW_KEY_LEFT,KEY_LEFT))
+			return false;
+		delta++;
+	}
+
+	window->wl.textInputFakeOffset=(s32)window->wl.textInputFakeCount-pos;
+	return true;
+}
+
+static bool l_fake_backspace(_GLFWwindow *window,u32 count){
+	while(count--){
+		if(!l_fake_key(window,GLFW_KEY_BACKSPACE,KEY_BACKSPACE))
+			return false;
+	}
+	return true;
+}
+
+//Drop all fake preedit state without touching the application.
+static void l_fake_reset(_GLFWwindow* window){
+	_glfw_free(window->wl.textInputFakeText);
+	_glfw_free(window->wl.textInputFakepreedit);
+	window->wl.textInputFakeText=NULL;
+	window->wl.textInputFakepreedit=NULL;
+	window->wl.textInputFakeCount=0;
+	window->wl.textInputFakeOffset=0;
+	//If its small than 0, it will be replace to the real len.
+	window->wl.textInputFakeCursor=-1;
+}
+
+/*
+Remove the fake preedit from the application,then forget it.
+FALSE means focus was lost inside a synthetic event,the window may be gone.
+*/
+static bool l_fake_clear(_GLFWwindow *window){
+	if(window->wl.textInputFakeCount&&_glfw.wl.keyboardFocus==window){
+		if(!l_fake_move(window,(s32)window->wl.textInputFakeCount))
+			return false;
+		if(!l_fake_backspace(window,window->wl.textInputFakeCount))
+			return false;
+	}
+	l_fake_reset(window);
+	return true;
+}
+
+/*
+Rewrite the fake preedit from its end and mirror the IME cursor.
+cursorByte is a byte offset inside text,negative means the end.
+*/
+static void l_fake_update(_GLFWwindow* window,const char* text,s32 cursorByte){
+	s32 cursor;
+	u32 prefix=0,newCount=0;
+	u32* newText=l_fake_decode(text,&newCount);
+
+	//Keep the old state when allocation failed.
+	if(text&&*text&&!newText)
+		return;
+
+	cursor=cursorByte<0?(s32)newCount:(s32)l_fake_byte_to_cp(text,cursorByte);
+	if(cursor<0)
+		cursor=0;
+	if(cursor>(s32)newCount)
+		cursor=(s32)newCount;
+
+	while(prefix<window->wl.textInputFakeCount&&prefix<newCount&&
+		window->wl.textInputFakeText[prefix]==newText[prefix])
+		prefix++;
+
+	if(prefix<window->wl.textInputFakeCount||prefix<newCount){
+		//Backspace only removes from the end,so go there before rewriting.
+		if(!l_fake_move(window,(s32)window->wl.textInputFakeCount)||
+			!l_fake_backspace(window,window->wl.textInputFakeCount-prefix)||
+			(newCount>prefix&&!l_fake_type(window,newText+prefix,newCount-prefix))){
+			_glfw_free(newText);
+			return;
+		}
+		if(_glfw.wl.keyboardFocus!=window){
+			_glfw_free(newText);
+			return;
+		}
+		window->wl.textInputFakeCount=newCount;
+	}
+
+	//Unchanged text still follows the IME cursor.
+	if(!l_fake_move(window,cursor)){
+		_glfw_free(newText);
+		return;
+	}
+	if(_glfw.wl.keyboardFocus!=window){
+		_glfw_free(newText);
+		return;
+	}
+	window->wl.textInputFakeOffset=(s32)window->wl.textInputFakeCount-cursor;
+
+	_glfw_free(window->wl.textInputFakeText);
+	window->wl.textInputFakeText=newText;
+}
+#endif
+
 #ifdef GLFW_ENABLE_TEXT_INPUT_V1
 //v1 has no enable request, activation follows the keyboard focus.
 static void l_text_input_v1_activate(_GLFWwindow *window){
@@ -382,6 +569,10 @@ static void textInputV3HandleEnter
 	window->wl.textInputIsPreditPending=GLFW_FALSE;
 	_glfw_free(window->wl.textInputCommited);
 	window->wl.textInputCommited=NULL;
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	//A new session must not inherit text from the previous one.
+	l_fake_reset(window);
+#endif
 
 	zwp_text_input_v3_enable(textInput);
 	zwp_text_input_v3_set_content_type(textInput,
@@ -402,6 +593,11 @@ static void textInputV3HandleLeave
 	window->wl.textInputIsPreditPending=GLFW_FALSE;
 	window->wl.textInputIsEnabled=GLFW_FALSE;
 
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	if(!l_fake_clear(window))
+		return;
+#endif
+
 	_glfw_free(window->wl.textInputCommited);
 	window->wl.textInputCommited=NULL;
 
@@ -413,6 +609,21 @@ static void textInputV3HandlePreeditString
 (void *userData,struct zwp_text_input_v3 *textInput,const char *text,int32_t cursorBegin,int32_t cursorEnd){
 	_GLFWwindow *window=userData;
 
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	//v3 is double buffered,stage the batch until done.
+	char* copy=NULL;
+	if(text&&*text){
+		copy=_glfw_strdup(text);
+		if(!copy)
+			return;
+	}
+	_glfw_free(window->wl.textInputFakepreedit);
+	window->wl.textInputFakepreedit=copy;
+	//KWin/fcitx keep cursor_begin at 0 and put the real caret in cursor_end.
+	//Treat negative values or the untouched (0,0) pair as "no cursor",i.e. end.
+	window->wl.textInputFakeCursor=
+		(cursorEnd<0||(cursorBegin==0&&cursorEnd==0))?-1:cursorEnd;
+#endif
 	//If there have vaild char in the preedit test,set it to true.
 	window->wl.textInputIsPreditPending=(text&&*text)?GLFW_TRUE:GLFW_FALSE;
 }
@@ -439,16 +650,39 @@ static void textInputV3HandleDeleteSurroundingText
 
 static void textInputV3HandleDone(void *userData,struct zwp_text_input_v3 *textInput,uint32_t serial){
 	_GLFWwindow *window=userData;
-	//Detach the buffer first,character callbacks may pump events again:
+	//Detach the buffers first,character callbacks may pump events again:
 	ACF(_glfw_auto_free) char* text=window->wl.textInputCommited;
 	window->wl.textInputCommited=NULL;
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	ACF(_glfw_auto_free) char* preedit=window->wl.textInputFakepreedit;
+	s32 cursor=window->wl.textInputFakeCursor;
+	window->wl.textInputFakepreedit=NULL;
+	window->wl.textInputFakeCursor=-1;
+#endif
 
 	//Apply the composing state even without text,an empty batch ends the preedit.
 	window->wl.textInputIsPrediting=window->wl.textInputIsPreditPending;
 	window->wl.textInputIsPreditPending=GLFW_FALSE;
 
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	//A commit replaces the old preedit,otherwise update it in place.
+	if(text){
+		if(!l_fake_clear(window)||_glfw.wl.keyboardFocus!=window)
+			return;
+		l_text_input_deliver_commited(window,text,GLFW_TRUE);
+		if(_glfw.wl.keyboardFocus!=window)
+			return;
+		if(preedit&&*preedit)
+			l_fake_update(window,preedit,cursor);
+	}
+	else if(preedit&&*preedit)
+		l_fake_update(window,preedit,cursor);
+	else
+		l_fake_clear(window);
+#else
 	//Decode committed text(UTF8), and then pass it to the app.
 	l_text_input_deliver_commited(window,text,GLFW_TRUE);
+#endif
 }
 
 static const struct zwp_text_input_v3_listener textInputV3Listener={
@@ -1875,16 +2109,32 @@ static void processPointerMotion(double xpos, double ypos)
     }
 }
 
-static void processPointerButton(int button, int action)
-{
-    _GLFWwindow* window = wl_surface_get_user_data(_glfw.wl.pointerSurface);
-    if (window->wl.surface == _glfw.wl.pointerSurface)
-        _glfwInputMouseClick(window, button, action, _glfw.wl.xkb.modifiers);
-    else
-    {
-        if (window->wl.fallback.decorations)
-            handleFallbackDecorationButton(window, button, action);
-    }
+static void processPointerButton(int button,int action){
+	_GLFWwindow *window=wl_surface_get_user_data(_glfw.wl.pointerSurface);
+	if(window->wl.surface==_glfw.wl.pointerSurface){
+		//A click moves or ends event received.
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+		if(action==GLFW_PRESS&&(window->wl.textInputIsPrediting||
+			window->wl.textInputFakeCount
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+			||window->wl.textInputIsPreditPending
+#endif
+		)){
+			//Clean fake preedits:
+			if(!l_fake_clear(window))
+				return;
+			//The IME may have stopped composing without telling us.
+			window->wl.textInputIsPrediting=false;
+#ifdef GLFW_ENABLE_TEXT_INPUT_V3
+			window->wl.textInputIsPreditPending=false;
+#endif
+		}
+#endif//GLFW_ENABLE_FAKE_PREEDIT
+	_glfwInputMouseClick(window, button, action, _glfw.wl.xkb.modifiers);
+}else{
+	if(window->wl.fallback.decorations)
+		handleFallbackDecorationButton(window,button,action);
+}
 }
 
 static void processPointerScroll(double xoffset, double yoffset)
@@ -2252,6 +2502,11 @@ static void keyboardHandleLeave(void* userData,
 #endif
 #endif
 
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	//The focus is gone,forget the fake preedit without sending synthetic keys.
+	l_fake_reset(window);
+#endif
+
 #ifdef GLFW_ENABLE_TEXT_INPUT_V1
 	l_text_input_v1_deactivate(window);
 #endif
@@ -2326,6 +2581,9 @@ static void l_text_input_v1_handle_enter(void *userData,struct zwp_text_input_v1
 	window->wl.textInputIsPrediting=GLFW_FALSE;
 	_glfw_free(window->wl.textInputCommited);
 	window->wl.textInputCommited=NULL;
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	l_fake_reset(window);
+#endif
 }
 
 static void l_text_input_v1_handle_leave(void *userData,struct zwp_text_input_v1 *textInput){
@@ -2334,6 +2592,11 @@ static void l_text_input_v1_handle_leave(void *userData,struct zwp_text_input_v1
 	//The compositor already deactivated, just drop the composing state.
 	window->wl.textInputIsPrediting=GLFW_FALSE;
 	window->wl.textInputIsEnabled=GLFW_FALSE;
+
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	if(!l_fake_clear(window))
+		return;
+#endif
 
 	//v1 may ask to replace the cancelled preedit with this text.
 	//It arrives after the keyboard may have moved on,so do not require focus.
@@ -2356,6 +2619,12 @@ static void l_text_input_v1_handle_preedit_string
 	//V1 is not double buffered, so if there no string exist that's mean its not preediting.
 	window->wl.textInputIsPrediting=(text&&*text)?GLFW_TRUE:GLFW_FALSE;
 
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	s32 cursor=window->wl.textInputFakeCursor;
+	window->wl.textInputFakeCursor=-1;
+	l_fake_update(window,text,cursor);
+#endif
+
 	//The preedit is not rendered, so we don't care about text, we just cache the commited string.
 	_glfw_free(window->wl.textInputCommited);
 	window->wl.textInputCommited=NULL;
@@ -2375,6 +2644,11 @@ static void l_text_input_v1_handle_preedit_styling
 static void l_text_input_v1_handle_preedit_cursor
 (void* userData,struct zwp_text_input_v1* textInput,int32_t index){
 	//The preedit is not rendered,there is no caret to place, so just ignore it.
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	//Keep the byte offset for the next preedit_string.
+	_GLFWwindow* window=userData;
+	window->wl.textInputFakeCursor=(index<0)?-1:index;
+#endif
 }
 
 static void l_text_input_v1_handle_commit_string
@@ -2382,6 +2656,11 @@ static void l_text_input_v1_handle_commit_string
 	_GLFWwindow* window=userData;
 
 	window->wl.textInputIsPrediting=GLFW_FALSE;
+
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	if(!l_fake_clear(window)||_glfw.wl.keyboardFocus!=window)
+		return;
+#endif
 
 	//Whaterver clean cached strings.
 	_glfw_free(window->wl.textInputCommited);
@@ -2950,7 +3229,11 @@ GLFWbool _glfwCreateWindowWayland(_GLFWwindow* window,
 	}
 #endif
 
-    return GLFW_TRUE;
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	l_fake_reset(window);
+#endif
+
+	return true;
 }
 
 void _glfwDestroyWindowWayland(_GLFWwindow* window)
@@ -2986,6 +3269,9 @@ void _glfwDestroyWindowWayland(_GLFWwindow* window)
 
 	_glfw_free(window->wl.textInputCommited);
 	window->wl.textInputCommited = NULL;
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	l_fake_reset(window);
+#endif
 #endif
 
     if (window->wl.scalingViewport)

@@ -84,6 +84,13 @@ if (GLFW_BUILD_WAYLAND)
         target_compile_definitions(glfw PRIVATE GLFW_ENABLE_TEXT_INPUT_V3)
     endif()
 
+    if (GLFW_ENABLE_FAKE_PREEDIT)
+        if (NOT GLFW_ENABLE_TEXT_INPUT_V1 AND NOT GLFW_ENABLE_TEXT_INPUT_V3)
+            message(FATAL_ERROR "GLFW_ENABLE_FAKE_PREEDIT requires text input support")
+        endif()
+        target_compile_definitions(glfw PRIVATE GLFW_ENABLE_FAKE_PREEDIT)
+    endif()
+
     target_sources(glfw PRIVATE wl_platform.h wl_init.c
                                 wl_monitor.c wl_window.c)
 endif()

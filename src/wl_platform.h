@@ -460,6 +460,16 @@ typedef struct _GLFWwindowWayland
 	bool textInputIsPrediting;
 	//True while the compositor has the input enabled(v3) or activated(v1).
 	bool textInputIsEnabled;
+#ifdef GLFW_ENABLE_FAKE_PREEDIT
+	//Byte cursor offset (cursor_end) reported by the IME for the next preedit.
+	s16 textInputFakeCursor;
+	u32 textInputFakeCount;
+	s32 textInputFakeOffset;
+	//Fake preedit typed into the app,rewritten from its end, its a decoded codepoint arrary.
+	u32 *textInputFakeText;
+	//v3 stages the whole preedit string until done.
+	char *textInputFakepreedit;
+#endif
 #endif
 
 #ifdef GLFW_ENABLE_TEXT_INPUT_V3
@@ -474,15 +484,15 @@ typedef struct _GLFWwindowWayland
 	u32 textInputV1Serial;
 #endif
 
-    struct {
-        GLFWbool                    decorations;
-        struct wl_buffer*           buffer;
-        _GLFWfallbackEdgeWayland    top, left, right, bottom;
-        double                      pointerX, pointerY;
-        uint32_t                    buttonPressSerial;
-        const char*                 cursorName;
-    } fallback;
-} _GLFWwindowWayland;
+	struct{
+		bool decorations;
+		uint32_t buttonPressSerial;
+		_GLFWfallbackEdgeWayland top,left,right,bottom;
+		double pointerX,pointerY;
+		const char *cursorName;
+		struct wl_buffer *buffer;
+	}fallback;
+}_GLFWwindowWayland;
 
 // Wayland-specific global data
 //

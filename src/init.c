@@ -264,55 +264,50 @@ int _glfw_max(int a, int b)
     return a > b ? a : b;
 }
 
-void* _glfw_calloc(size_t count, size_t size)
-{
-    if (count && size)
-    {
-        void* block;
+__attribute__((always_inline)) inline void*
+_glfw_malloc(ul size){
+	if(!size)
+		return NULL;
 
-        if (count > SIZE_MAX / size)
-        {
-            _glfwInputError(GLFW_INVALID_VALUE, "Allocation size overflow");
-            return NULL;
-        }
-
-        block = _glfw.allocator.allocate(count * size, _glfw.allocator.user);
-        if (block)
-            return memset(block, 0, count * size);
-        else
-        {
-            _glfwInputError(GLFW_OUT_OF_MEMORY, NULL);
-            return NULL;
-        }
-    }
-    else
-        return NULL;
+	void *block=_glfw.allocator.allocate(size,_glfw.allocator.user);
+	if(block)
+		return block;
+	else{
+		_glfwInputError(GLFW_OUT_OF_MEMORY,NULL);
+		return NULL;
+	}
 }
 
-void* _glfw_realloc(void* block, size_t size)
-{
-    if (block && size)
-    {
-        void* resized = _glfw.allocator.reallocate(block, size, _glfw.allocator.user);
-        if (resized)
-            return resized;
-        else
-        {
-            _glfwInputError(GLFW_OUT_OF_MEMORY, NULL);
-            return NULL;
-        }
-    }
-    else if (block)
-    {
-        _glfw_free(block);
-        return NULL;
-    }
-    else
-        return _glfw_calloc(1, size);
+void *_glfw_calloc(ul count,ul size){
+	ul ssize=count*size;
+	if(!ssize)
+		return NULL;
+	if(ssize/count!=size){
+		_glfwInputError(GLFW_INVALID_VALUE,"Allocation size overflow");
+		return NULL;
+	}
+	return memset(_glfw_malloc(ssize),0,ssize);
+}
+
+void* _glfw_realloc(void *block,size_t size){
+	if(block&&size){
+		void* resized=_glfw.allocator.reallocate(block,size,_glfw.allocator.user);
+		if(resized)
+			return resized;
+		else{
+			_glfwInputError(GLFW_OUT_OF_MEMORY, NULL);
+			return NULL;
+		}
+	}else if(block){
+		//???, his brain was fucked by dog?
+		_glfw_free(block);
+		return NULL;
+	}else
+		return _glfw_calloc(1,size);
 }
 
 //Normal function body:
-void _glfw_auto_free(void *pptr){
+extern void _glfw_auto_free(void *pptr){
 	if(pptr&&*(void**)pptr)
 		_glfw.allocator.deallocate(*(void**)pptr,_glfw.allocator.user);
 }
