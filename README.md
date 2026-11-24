@@ -1,13 +1,27 @@
-# GLFW
-
 Branch changes:
-Please see CMakeLists.txt
 
-Thanks for clear-code/glfw @ 068858eece20cd6b6128f6f07a1d61f2dc2cbfaf
+	Please see CMakeLists.txt
 
-[![Build status](https://github.com/glfw/glfw/actions/workflows/build.yml/badge.svg)](https://github.com/glfw/glfw/actions)
-[![Build status](https://ci.appveyor.com/api/projects/status/0kf0ct9831i5l6sp/branch/master?svg=true)](https://ci.appveyor.com/project/elmindreda/glfw)
+	Qlib is not provided, so please use binaries directly.
 
+	Optimize for MineCraft on linux wayland environment(Textinput etc).
+
+Thanks for clear-code/glfw @068858eece20cd6b6128f6f07a1d61f2dc2cbfaf
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# GLFW
 ## Introduction
 
 GLFW is an Open Source, multi-platform library for OpenGL, OpenGL ES and Vulkan

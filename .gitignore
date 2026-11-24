@@ -7,6 +7,7 @@ AGENTS.md
 TODO
 compile_flags.txt
 todo
+*.kate-swp
 
 # Visual Studio clutter
 _ReSharper*
